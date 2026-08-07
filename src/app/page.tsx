@@ -1,12 +1,11 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import Link from 'next/link';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { AlbumCard } from '@/components/gallery/AlbumCard';
 import { MediaCard } from '@/components/gallery/MediaCard';
 import { Album, MediaItem } from '@/types';
-import { FolderPlus, Image as ImageIcon, Sparkles, RefreshCw, X, Link as LinkIcon, HardDrive } from 'lucide-react';
+import { FolderPlus, Sparkles, X, Link as LinkIcon, HardDrive, PlayCircle } from 'lucide-react';
 
 export default function HomePage() {
   const [albums, setAlbums] = useState<Album[]>([]);
@@ -74,6 +73,25 @@ export default function HomePage() {
     }
   };
 
+  const handleDeleteAlbum = async (id: string) => {
+    try {
+      const res = await fetch(`/api/albums?id=${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        loadData();
+      } else {
+        alert('Failed to remove album');
+      }
+    } catch (err) {
+      alert('Error removing album');
+    }
+  };
+
+  const handleFillDemo = () => {
+    setNewTitle('Family Vacation Demo 2026');
+    setNewDescription('Indexed photos & videos from sample MEGA folder');
+    setNewMegaUrl('https://mega.nz/folder/example#demo-key-2026');
+  };
+
   return (
     <PageContainer>
       {/* Top Bar Header */}
@@ -121,7 +139,7 @@ export default function HomePage() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {albums.map((album) => (
-              <AlbumCard key={album.id} album={album} />
+              <AlbumCard key={album.id} album={album} onDelete={handleDeleteAlbum} />
             ))}
           </div>
         )}
@@ -160,8 +178,20 @@ export default function HomePage() {
               <X className="w-5 h-5" />
             </button>
 
-            <div className="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 mb-4">
-              <HardDrive className="w-6 h-6 text-red-400" />
+            <div className="flex items-center justify-between mb-4">
+              <div className="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+                <HardDrive className="w-6 h-6 text-red-400" />
+              </div>
+
+              {/* Demo Fill Button */}
+              <button
+                type="button"
+                onClick={handleFillDemo}
+                className="px-3 py-1.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-300 hover:text-white hover:bg-purple-500/20 text-xs font-semibold flex items-center gap-1.5 transition-all"
+              >
+                <PlayCircle className="w-3.5 h-3.5" />
+                <span>Fill Demo Link</span>
+              </button>
             </div>
 
             <h3 className="text-xl font-bold text-white mb-1">Add MEGA Folder Album</h3>

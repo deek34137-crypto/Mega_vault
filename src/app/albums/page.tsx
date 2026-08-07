@@ -1,18 +1,85 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { SectionTitle } from '@/components/ui/SectionTitle';
 import { AlbumCard } from '@/components/gallery/AlbumCard';
-import { MOCK_ALBUMS } from '@/lib/constants';
-import { Plus, Search, FolderPlus, Link as LinkIcon, HardDrive, X } from 'lucide-react';
+import { Album } from '@/types';
+import { Plus, Search, FolderPlus, Link as LinkIcon, HardDrive, X, PlayCircle } from 'lucide-react';
 
 export default function AlbumsPage() {
+  const [albums, setAlbums] = useState<Album[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [megaUrlInput, setMegaUrlInput] = useState('');
+  const [newTitle, setNewTitle] = useState('');
+  const [newDescription, setNewDescription] = useState('');
+  const [newMegaUrl, setNewMegaUrl] = useState('');
 
-  const filteredAlbums = MOCK_ALBUMS.filter(
+  const loadAlbums = async () => {
+    try {
+      const res = await fetch('/api/albums');
+      if (res.ok) {
+        const data = await res.json();
+        setAlbums(data.albums || []);
+      }
+    } catch (err) {
+      console.error('Error loading albums:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadAlbums();
+  }, []);
+
+  const handleCreateAlbum = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTitle || !newMegaUrl) return;
+
+    try {
+      const res = await fetch('/api/albums', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: newTitle,
+          description: newDescription,
+          megaUrl: newMegaUrl,
+        }),
+      });
+
+      if (res.ok) {
+        setNewTitle('');
+        setNewDescription('');
+        setNewMegaUrl('');
+        setIsAddModalOpen(false);
+        loadAlbums();
+      } else {
+        alert('Failed to add album');
+      }
+    } catch (err) {
+      alert('Error creating album');
+    }
+  };
+
+  const handleDeleteAlbum = async (id: string) => {
+    try {
+      const res = await fetch(`/api/albums?id=${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        loadAlbums();
+      } else {
+        alert('Failed to remove album');
+      }
+    } catch (err) {
+      alert('Error removing album');
+    }
+  };
+
+  const handleFillDemo = () => {
+    setNewTitle('Family Vacation Demo 2026');
+    setNewDescription('Indexed photos & videos from sample MEGA folder');
+    setNewMegaUrl('https://mega.nz/folder/example#demo-key-2026');
+  };
+
+  const filteredAlbums = albums.filter(
     (album) =>
       album.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       album.description?.toLowerCase().includes(searchQuery.toLowerCase())
@@ -55,11 +122,11 @@ export default function AlbumsPage() {
       {/* Albums Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         {filteredAlbums.map((album) => (
-          <AlbumCard key={album.id} album={album} />
+          <AlbumCard key={album.id} album={album} onDelete={handleDeleteAlbum} />
         ))}
       </div>
 
-      {/* Add MEGA Folder Modal Placeholder UI */}
+      {/* Add MEGA Folder Modal */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md">
           <div className="glass-panel w-full max-w-lg rounded-3xl p-6 border border-zinc-800 shadow-2xl relative">
@@ -70,16 +137,55 @@ export default function AlbumsPage() {
               <X className="w-5 h-5" />
             </button>
 
-            <div className="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 mb-4">
-              <HardDrive className="w-6 h-6 text-red-400" />
+            <div className="flex items-center justify-between mb-4">
+              <div className="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+                <HardDrive className="w-6 h-6 text-red-400" />
+              </div>
+
+              {/* Demo Fill Button */}
+              <button
+                type="button"
+                onClick={handleFillDemo}
+                className="px-3 py-1.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-300 hover:text-white hover:bg-purple-500/20 text-xs font-semibold flex items-center gap-1.5 transition-all"
+              >
+                <PlayCircle className="w-3.5 h-3.5" />
+                <span>Fill Demo Link</span>
+              </button>
             </div>
 
-            <h3 className="text-xl font-bold text-white mb-1">Add MEGA Folder Link</h3>
-            <p className="text-xs text-zinc-400 mb-6 leading-relaxed">
-              Paste a public or shared MEGA folder link that contains the decryption key. MegaVault will read folder metadata without downloading files.
+            <h3 className="text-xl font-bold text-white mb-1">Add MEGA Folder Album</h3>
+            <p className="text-xs text-zinc-400 mb-6">
+              Paste your shared MEGA folder link. MegaVault will index media without uploading or storing files.
             </p>
 
-            <div className="space-y-4">
+            <form onSubmit={handleCreateAlbum} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                  Album Title
+                </label>
+                <input
+                  type="text"
+                  value={newTitle}
+                  onChange={(e) => setNewTitle(e.target.value)}
+                  placeholder="e.g. Family Vacation 2026"
+                  required
+                  className="w-full bg-zinc-900 border border-zinc-700/70 rounded-xl px-4 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                  Description (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={newDescription}
+                  onChange={(e) => setNewDescription(e.target.value)}
+                  placeholder="e.g. Beach sunsets and highlights"
+                  className="w-full bg-zinc-900 border border-zinc-700/70 rounded-xl px-4 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
               <div>
                 <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
                   MEGA Folder URL
@@ -88,43 +194,31 @@ export default function AlbumsPage() {
                   <LinkIcon className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
-                    value={megaUrlInput}
-                    onChange={(e) => setMegaUrlInput(e.target.value)}
+                    value={newMegaUrl}
+                    onChange={(e) => setNewMegaUrl(e.target.value)}
                     placeholder="https://mega.nz/folder/..."
+                    required
                     className="w-full bg-zinc-900 border border-zinc-700/70 rounded-xl pl-10 pr-4 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-blue-500"
                   />
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
-                  Album Name (Optional)
-                </label>
-                <input
-                  type="text"
-                  placeholder="Auto-detected from folder if empty"
-                  className="w-full bg-zinc-900 border border-zinc-700/70 rounded-xl px-4 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
               <div className="pt-4 flex items-center justify-end space-x-3">
                 <button
+                  type="button"
                   onClick={() => setIsAddModalOpen(false)}
                   className="px-4 py-2 rounded-xl text-sm font-medium text-zinc-400 hover:text-white"
                 >
                   Cancel
                 </button>
                 <button
-                  onClick={() => {
-                    alert('Folder indexing will be processed when backend is connected.');
-                    setIsAddModalOpen(false);
-                  }}
+                  type="submit"
                   className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold transition-all shadow-md shadow-blue-600/20"
                 >
-                  Retrieve Folder
+                  Save Album
                 </button>
               </div>
-            </div>
+            </form>
           </div>
         </div>
       )}
