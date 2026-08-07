@@ -5,16 +5,23 @@ import crypto from 'crypto';
 const dbPath = path.join(process.cwd(), 'megavault.db');
 let db: Database.Database;
 
-// AES-256-GCM Link Encryption Helper
-const ENCRYPTION_KEY = crypto.scryptSync(
-  process.env.COOKIE_SECRET || 'megavault-super-secret-key-32chars!',
-  'megavault-salt',
-  32
-);
+// AES-256-GCM Encryption Key Initialization
+function getEncryptionKey(): Buffer {
+  const envKey = process.env.ENCRYPTION_KEY;
+  if (envKey && envKey.length === 64) {
+    return Buffer.from(envKey, 'hex');
+  }
+  return crypto.scryptSync(
+    process.env.COOKIE_SECRET || 'megavault-super-secret-key-32chars!',
+    'megavault-salt',
+    32
+  );
+}
 
 function encryptText(text: string): string {
+  const key = getEncryptionKey();
   const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', ENCRYPTION_KEY, iv);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
   let encrypted = cipher.update(text, 'utf8', 'hex');
   encrypted += cipher.final('hex');
   const authTag = cipher.getAuthTag().toString('hex');
@@ -25,9 +32,10 @@ function decryptText(encryptedText: string): string {
   try {
     if (!encryptedText.includes(':')) return encryptedText; // Fallback if plain text
     const [ivHex, authTagHex, encrypted] = encryptedText.split(':');
+    const key = getEncryptionKey();
     const iv = Buffer.from(ivHex, 'hex');
     const authTag = Buffer.from(authTagHex, 'hex');
-    const decipher = crypto.createDecipheriv('aes-256-gcm', ENCRYPTION_KEY, iv);
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
     decipher.setAuthTag(authTag);
     let decrypted = decipher.update(encrypted, 'hex', 'utf8');
     decrypted += decipher.final('utf8');
