@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getAllAlbums, createAlbum, deleteAlbum } from '@/lib/db';
-import { fetchMegaFolderMedia, parseMegaUrl } from '@/lib/mega';
+import { fetchMegaFolderMedia } from '@/lib/mega';
 import { isAuthenticated } from '@/lib/auth';
 
 export async function GET() {
@@ -10,7 +10,7 @@ export async function GET() {
   }
 
   try {
-    const dbAlbums = getAllAlbums();
+    const dbAlbums = await getAllAlbums();
 
     // Fetch media count for each album
     const albumsWithStats = await Promise.all(
@@ -48,7 +48,7 @@ export async function POST(request: Request) {
     }
 
     const id = `alb-${Date.now()}`;
-    const album = createAlbum({ id, title, description, megaLink: megaUrl });
+    const album = await createAlbum({ id, title, description, megaLink: megaUrl });
 
     return NextResponse.json({ success: true, album });
   } catch (error) {
@@ -70,7 +70,7 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: 'Album ID is required' }, { status: 400 });
     }
 
-    deleteAlbum(id);
+    await deleteAlbum(id);
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: 'Failed to delete album' }, { status: 500 });

@@ -1,11 +1,13 @@
 import Database from 'better-sqlite3';
+import { createClient, Client } from '@libsql/client';
 import path from 'path';
 import crypto from 'crypto';
 
 const dbPath = path.join(process.cwd(), 'megavault.db');
-let db: Database.Database;
+let localDb: Database.Database | null = null;
+let tursoClient: Client | null = null;
 
-// AES-256-GCM Encryption Key Initialization
+// Encryption Helper using ENCRYPTION_KEY or COOKIE_SECRET
 function getEncryptionKey(): Buffer {
   const envKey = process.env.ENCRYPTION_KEY;
   if (envKey && envKey.length === 64) {
@@ -30,7 +32,7 @@ function encryptText(text: string): string {
 
 function decryptText(encryptedText: string): string {
   try {
-    if (!encryptedText.includes(':')) return encryptedText; // Fallback if plain text
+    if (!encryptedText.includes(':')) return encryptedText;
     const [ivHex, authTagHex, encrypted] = encryptedText.split(':');
     const key = getEncryptionKey();
     const iv = Buffer.from(ivHex, 'hex');
@@ -41,17 +43,30 @@ function decryptText(encryptedText: string): string {
     decrypted += decipher.final('utf8');
     return decrypted;
   } catch (err) {
-    return encryptedText; // Graceful fallback
+    return encryptedText;
   }
 }
 
-function getDb(): Database.Database {
-  if (!db) {
-    db = new Database(dbPath);
-    db.pragma('journal_mode = WAL');
+// Database Connection Helper
+function getTursoClient(): Client | null {
+  if (process.env.TURSO_DATABASE_URL) {
+    if (!tursoClient) {
+      tursoClient = createClient({
+        url: process.env.TURSO_DATABASE_URL,
+        authToken: process.env.TURSO_AUTH_TOKEN,
+      });
+    }
+    return tursoClient;
+  }
+  return null;
+}
 
-    // Initialize Schema
-    db.exec(`
+function getLocalDb(): Database.Database {
+  if (!localDb) {
+    localDb = new Database(dbPath);
+    localDb.pragma('journal_mode = WAL');
+
+    localDb.exec(`
       CREATE TABLE IF NOT EXISTS albums (
         id TEXT PRIMARY KEY,
         title TEXT NOT NULL,
@@ -61,12 +76,11 @@ function getDb(): Database.Database {
       );
     `);
 
-    // Seed initial sample album if empty
-    const countStmt = db.prepare('SELECT COUNT(*) as count FROM albums');
+    const countStmt = localDb.prepare('SELECT COUNT(*) as count FROM albums');
     const result = countStmt.get() as { count: number };
 
     if (result.count === 0) {
-      const insertStmt = db.prepare(`
+      const insertStmt = localDb.prepare(`
         INSERT INTO albums (id, title, description, mega_link, created_at)
         VALUES (?, ?, ?, ?, ?)
       `);
@@ -79,8 +93,7 @@ function getDb(): Database.Database {
       );
     }
   }
-
-  return db;
+  return localDb;
 }
 
 export interface DbAlbum {
@@ -91,8 +104,31 @@ export interface DbAlbum {
   created_at: string;
 }
 
-export function getAllAlbums(): DbAlbum[] {
-  const statement = getDb().prepare('SELECT * FROM albums ORDER BY created_at DESC');
+// Async Database API matching Turso & SQLite
+export async function getAllAlbums(): Promise<DbAlbum[]> {
+  const client = getTursoClient();
+  if (client) {
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS albums (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        description TEXT,
+        mega_link TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+    `);
+    const res = await client.execute('SELECT * FROM albums ORDER BY created_at DESC');
+    return res.rows.map((row: any) => ({
+      id: row.id,
+      title: row.title,
+      description: row.description,
+      mega_link: decryptText(row.mega_link),
+      created_at: row.created_at,
+    }));
+  }
+
+  const db = getLocalDb();
+  const statement = db.prepare('SELECT * FROM albums ORDER BY created_at DESC');
   const rows = statement.all() as DbAlbum[];
   return rows.map((row) => ({
     ...row,
@@ -100,8 +136,26 @@ export function getAllAlbums(): DbAlbum[] {
   }));
 }
 
-export function getAlbumById(id: string): DbAlbum | undefined {
-  const statement = getDb().prepare('SELECT * FROM albums WHERE id = ?');
+export async function getAlbumById(id: string): Promise<DbAlbum | undefined> {
+  const client = getTursoClient();
+  if (client) {
+    const res = await client.execute({
+      sql: 'SELECT * FROM albums WHERE id = ?',
+      args: [id],
+    });
+    if (res.rows.length === 0) return undefined;
+    const row: any = res.rows[0];
+    return {
+      id: row.id,
+      title: row.title,
+      description: row.description,
+      mega_link: decryptText(row.mega_link),
+      created_at: row.created_at,
+    };
+  }
+
+  const db = getLocalDb();
+  const statement = db.prepare('SELECT * FROM albums WHERE id = ?');
   const row = statement.get(id) as DbAlbum | undefined;
   if (!row) return undefined;
   return {
@@ -110,11 +164,27 @@ export function getAlbumById(id: string): DbAlbum | undefined {
   };
 }
 
-export function createAlbum(album: { id: string; title: string; description?: string; megaLink: string }): DbAlbum {
+export async function createAlbum(album: { id: string; title: string; description?: string; megaLink: string }): Promise<DbAlbum> {
   const createdAt = new Date().toISOString();
   const encryptedLink = encryptText(album.megaLink);
 
-  const statement = getDb().prepare(`
+  const client = getTursoClient();
+  if (client) {
+    await client.execute({
+      sql: `INSERT INTO albums (id, title, description, mega_link, created_at) VALUES (?, ?, ?, ?, ?)`,
+      args: [album.id, album.title, album.description || null, encryptedLink, createdAt],
+    });
+    return {
+      id: album.id,
+      title: album.title,
+      description: album.description || null,
+      mega_link: album.megaLink,
+      created_at: createdAt,
+    };
+  }
+
+  const db = getLocalDb();
+  const statement = db.prepare(`
     INSERT INTO albums (id, title, description, mega_link, created_at)
     VALUES (?, ?, ?, ?, ?)
   `);
@@ -129,8 +199,18 @@ export function createAlbum(album: { id: string; title: string; description?: st
   };
 }
 
-export function deleteAlbum(id: string): boolean {
-  const statement = getDb().prepare('DELETE FROM albums WHERE id = ?');
+export async function deleteAlbum(id: string): Promise<boolean> {
+  const client = getTursoClient();
+  if (client) {
+    const res = await client.execute({
+      sql: 'DELETE FROM albums WHERE id = ?',
+      args: [id],
+    });
+    return res.rowsAffected > 0;
+  }
+
+  const db = getLocalDb();
+  const statement = db.prepare('DELETE FROM albums WHERE id = ?');
   const info = statement.run(id);
   return info.changes > 0;
 }

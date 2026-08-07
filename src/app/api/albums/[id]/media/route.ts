@@ -13,7 +13,7 @@ export async function GET(
   }
 
   const { id } = await params;
-  const album = getAlbumById(id);
+  const album = await getAlbumById(id);
 
   if (!album) {
     return NextResponse.json({ error: 'Album not found' }, { status: 404 });
