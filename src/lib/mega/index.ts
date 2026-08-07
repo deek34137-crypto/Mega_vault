@@ -17,14 +17,12 @@ export function parseMegaUrl(url: string): { folderId: string; key: string } | n
   try {
     const parsed = new URL(url);
 
-    // Format 1: https://mega.nz/folder/HANDLE#KEY
     if (parsed.pathname.startsWith('/folder/')) {
       const folderId = parsed.pathname.replace('/folder/', '').replace('/', '');
       const key = parsed.hash.replace('#', '');
       if (folderId && key) return { folderId, key };
     }
 
-    // Format 2: https://mega.nz/#F!HANDLE!KEY
     if (parsed.hash.startsWith('#F!')) {
       const parts = parsed.hash.split('!');
       if (parts.length >= 3) {
@@ -74,37 +72,48 @@ export async function fetchMegaFolderMedia(
     let imageCount = 0;
     let videoCount = 0;
 
-    if (folder.children) {
-      for (const child of folder.children) {
-        if (child.directory) continue; // Skip subdirectories for V1
+    // Recursive helper to traverse subfolders inside MEGA folder
+    const traverseFolderNode = (node: any, folderPath = '') => {
+      if (!node) return;
 
-        const name = child.name || 'unnamed_file';
-        const ext = name.split('.').pop()?.toLowerCase() || '';
+      if (node.children && Array.isArray(node.children)) {
+        for (const child of node.children) {
+          if (child.directory) {
+            // Recursively walk subfolder
+            traverseFolderNode(child, folderPath ? `${folderPath}/${child.name}` : child.name);
+          } else {
+            const rawName = child.name || 'unnamed_file';
+            const ext = rawName.split('.').pop()?.toLowerCase() || '';
 
-        let mediaType: MediaType | null = null;
-        if (SUPPORTED_IMAGE_EXTENSIONS.includes(ext)) {
-          mediaType = 'IMAGE';
-          imageCount++;
-        } else if (SUPPORTED_VIDEO_EXTENSIONS.includes(ext)) {
-          mediaType = 'VIDEO';
-          videoCount++;
-        }
+            let mediaType: MediaType | null = null;
+            if (SUPPORTED_IMAGE_EXTENSIONS.includes(ext)) {
+              mediaType = 'IMAGE';
+              imageCount++;
+            } else if (SUPPORTED_VIDEO_EXTENSIONS.includes(ext)) {
+              mediaType = 'VIDEO';
+              videoCount++;
+            }
 
-        if (mediaType) {
-          items.push({
-            id: `med-${child.downloadId || Math.random().toString(36).substring(7)}`,
-            albumId,
-            fileHandle: child.downloadId || child.name || '',
-            fileName: name,
-            mimeType: mediaType === 'IMAGE' ? `image/${ext}` : `video/${ext}`,
-            mediaType,
-            size: child.size || 0,
-            createdAt: child.timestamp ? new Date(child.timestamp * 1000).toISOString() : new Date().toISOString(),
-            thumbnailUrl: (child as any).thumbnailUrl || undefined,
-          });
+            if (mediaType) {
+              const displayName = folderPath ? `${folderPath}/${rawName}` : rawName;
+              items.push({
+                id: `med-${child.downloadId || Math.random().toString(36).substring(7)}`,
+                albumId,
+                fileHandle: child.downloadId || child.name || '',
+                fileName: displayName,
+                mimeType: mediaType === 'IMAGE' ? `image/${ext}` : `video/${ext}`,
+                mediaType,
+                size: child.size || 0,
+                createdAt: child.timestamp ? new Date(child.timestamp * 1000).toISOString() : new Date().toISOString(),
+                thumbnailUrl: (child as any).thumbnailUrl || undefined,
+              });
+            }
+          }
         }
       }
-    }
+    };
+
+    traverseFolderNode(folder);
 
     const result: MegaFolderResult = {
       albumId,
@@ -120,7 +129,6 @@ export async function fetchMegaFolderMedia(
     return result;
   } catch (error) {
     console.error('Error reading MEGA folder link:', error);
-    // Return empty result rather than crashing
     return {
       albumId,
       items: [],
