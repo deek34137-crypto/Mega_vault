@@ -17,47 +17,57 @@ import {
   Download,
   ChevronLeft,
   ChevronRight,
+  AlertTriangle,
 } from 'lucide-react';
 import { formatBytes, formatDate } from '@/lib/utils/cn';
 
 export default function AlbumDetailsPage() {
   const params = useParams();
-  const albumId = params?.id as string;
+  const rawId = params?.id;
+  const albumId = Array.isArray(rawId) ? rawId[0] : (rawId as string) || '';
 
   const [album, setAlbum] = useState<Album | null>(null);
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [mediaTypeFilter, setMediaTypeFilter] = useState<FilterMediaType>('all');
 
-  const loadMedia = async () => {
+  const loadMedia = useCallback(async () => {
+    if (!albumId) return;
+
     try {
       setIsLoading(true);
-      const res = await fetch(`/api/albums/${albumId}/media`);
+      setErrorMessage(null);
+
+      const res = await fetch(`/api/albums/${encodeURIComponent(albumId)}/media`);
       if (res.ok) {
         const data = await res.json();
         setAlbum(data.album);
         setMediaItems(data.items || []);
+      } else {
+        setErrorMessage('Failed to load media for this album.');
       }
     } catch (err) {
       console.error('Error loading album media:', err);
+      setErrorMessage('Network or server error while connecting to album.');
     } finally {
       setIsLoading(false);
     }
-  };
-
-  useEffect(() => {
-    if (albumId) {
-      loadMedia();
-    }
   }, [albumId]);
 
+  useEffect(() => {
+    loadMedia();
+  }, [loadMedia]);
+
   const handleRefresh = async () => {
+    if (!albumId) return;
+
     try {
       setIsRefreshing(true);
-      const res = await fetch(`/api/albums/${albumId}/refresh`, { method: 'POST' });
+      const res = await fetch(`/api/albums/${encodeURIComponent(albumId)}/refresh`, { method: 'POST' });
       if (res.ok) {
         const data = await res.json();
         setMediaItems(data.media?.items || []);
@@ -138,7 +148,6 @@ export default function AlbumDetailsPage() {
           </div>
 
           <div className="flex items-center space-x-3">
-            {/* Refresh Album Action */}
             <button
               onClick={handleRefresh}
               disabled={isRefreshing}
@@ -150,6 +159,14 @@ export default function AlbumDetailsPage() {
           </div>
         </div>
       </div>
+
+      {/* Error Alert Banner */}
+      {errorMessage && (
+        <div className="mb-6 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs font-medium flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 flex-shrink-0 text-amber-400" />
+          <span>{errorMessage}</span>
+        </div>
+      )}
 
       {/* Filter Controls */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 mb-6">
@@ -220,10 +237,9 @@ export default function AlbumDetailsPage() {
         </div>
       )}
 
-      {/* Fullscreen Lightbox / Media Viewer with Keyboard Nav & Next/Prev */}
+      {/* Fullscreen Lightbox / Media Viewer */}
       {selectedMedia && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/95 backdrop-blur-2xl">
-          {/* Close Button */}
           <button
             onClick={() => setSelectedIndex(null)}
             className="absolute top-4 right-4 p-3 rounded-full bg-zinc-900/80 text-zinc-400 hover:text-white border border-zinc-700 z-20"
@@ -231,7 +247,6 @@ export default function AlbumDetailsPage() {
             <X className="w-6 h-6" />
           </button>
 
-          {/* Previous Button */}
           <button
             onClick={handlePrev}
             className="absolute left-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-zinc-900/80 text-zinc-300 hover:text-white border border-zinc-700/80 hover:bg-zinc-800 z-20 transition-all"
@@ -239,7 +254,6 @@ export default function AlbumDetailsPage() {
             <ChevronLeft className="w-6 h-6" />
           </button>
 
-          {/* Next Button */}
           <button
             onClick={handleNext}
             className="absolute right-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-zinc-900/80 text-zinc-300 hover:text-white border border-zinc-700/80 hover:bg-zinc-800 z-20 transition-all"
@@ -258,7 +272,8 @@ export default function AlbumDetailsPage() {
               ) : (
                 <div className="p-16 text-zinc-500 flex flex-col items-center">
                   <Play className="w-16 h-16 mb-2 text-blue-500" />
-                  <span>Media Preview</span>
+                  <span className="font-mono text-sm text-zinc-300 mb-1">{selectedMedia.fileName}</span>
+                  <span className="text-xs text-zinc-500">Video Item</span>
                 </div>
               )}
             </div>
