@@ -64,21 +64,34 @@ function AlbumContent() {
 
       const url = `/api/albums/${encodeURIComponent(albumId)}/media${folderParam ? `?folder=${encodeURIComponent(folderParam)}` : ''}`;
       const res = await fetch(url);
-      if (res.ok) {
-        const data = await res.json();
-        setAlbum(data.album);
-        setMediaItems(data.items || []);
-        setSubfolders(data.subfolders || []);
 
-        if (data.timedOut) {
-          setErrorMessage('MEGA folder connection timed out. Click "Refresh Album" to retry.');
+      if (res.status === 401 || res.redirected) {
+        window.location.href = '/login';
+        return;
+      }
+
+      if (res.ok) {
+        const text = await res.text();
+        try {
+          const data = JSON.parse(text);
+          setAlbum(data.album);
+          setMediaItems(data.items || []);
+          setSubfolders(data.subfolders || []);
+
+          if (data.timedOut) {
+            setErrorMessage('MEGA folder connection timed out. Click "Refresh Album" to retry.');
+          }
+        } catch (e) {
+          // If non-JSON returned, user session likely expired
+          window.location.href = '/login';
+          return;
         }
       } else {
         setErrorMessage('Failed to load media for this album.');
       }
     } catch (err) {
       console.error('Error loading album media:', err);
-      setErrorMessage('Network or server error while connecting to album.');
+      setErrorMessage('Network error while connecting to album.');
     } finally {
       setIsLoading(false);
     }
