@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getAlbumById } from '@/lib/db';
 import { fetchMegaFolderMedia } from '@/lib/mega';
+import { getFolderSnapshot } from '@/lib/cache/snapshots';
 import { isAuthenticated } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
@@ -26,19 +27,29 @@ export async function GET(
       return NextResponse.json({ error: 'Album not found' }, { status: 404 });
     }
 
-    // Protect against execution hangs with a 50s timeout race for initial large MEGA indexing
+    const cacheKey = `mega_media_${album.id}_${album.mega_link}_${subfolderPath || 'root'}`;
+
+    // Protect against execution hangs with a 45s timeout race
     const timeoutPromise = new Promise((resolve) =>
-      setTimeout(
-        () =>
+      setTimeout(() => {
+        const snapshot = getFolderSnapshot(cacheKey);
+        if (snapshot) {
+          resolve({
+            ...snapshot,
+            isFromSnapshot: true,
+            timedOut: true,
+            errorMessage: 'MEGA connection timed out; showing saved folder snapshot.',
+          });
+        } else {
           resolve({
             albumId: album.id,
             items: [],
             subfolders: [],
             mediaCount: { total: 0, images: 0, videos: 0 },
             timedOut: true,
-          }),
-        50000
-      )
+          });
+        }
+      }, 45000)
     );
 
     const fetchPromise = fetchMegaFolderMedia(album.id, album.mega_link, subfolderPath);

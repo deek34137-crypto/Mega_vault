@@ -170,9 +170,15 @@ function AlbumContent() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (selectedIndex === null || selectedMedia?.mediaType === 'VIDEO') return;
-      if (e.key === 'ArrowLeft') handlePrev();
-      if (e.key === 'ArrowRight') handleNext();
+      if (selectedIndex === null) return;
+      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return;
+
+      if (selectedMedia?.mediaType === 'IMAGE') {
+        if (e.key === 'ArrowLeft') handlePrev();
+        if (e.key === 'ArrowRight') handleNext();
+      }
+      if (e.key === '[' || (e.shiftKey && e.key === 'ArrowLeft')) handlePrev();
+      if (e.key === ']' || (e.shiftKey && e.key === 'ArrowRight')) handleNext();
       if (e.key === 'Escape') setSelectedIndex(null);
     };
 

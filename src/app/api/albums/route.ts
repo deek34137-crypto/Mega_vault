@@ -25,6 +25,7 @@ export async function GET() {
           updatedAt: alb.updated_at ?? alb.created_at,
           status: 'ACTIVE' as const,
           mediaCount: folderMedia.mediaCount,
+          subfolderCount: folderMedia.subfolders?.length || 0,
           coverUrl: folderMedia.items[0]?.thumbnailUrl ?? null,
         };
       })

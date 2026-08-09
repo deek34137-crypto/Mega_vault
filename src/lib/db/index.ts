@@ -125,6 +125,44 @@ function getLocalDb(): Database.Database {
   return localDb;
 }
 
+import fs from 'fs';
+
+const dataDir = path.join(process.cwd(), 'data');
+const backupFilePath = path.join(dataDir, 'albums_backup.json');
+
+function ensureDataDir(): void {
+  try {
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+  } catch (e) {
+    console.error('Failed to create data directory:', e);
+  }
+}
+
+function syncBackup(albums: DbAlbum[]): void {
+  ensureDataDir();
+  try {
+    fs.writeFileSync(backupFilePath, JSON.stringify(albums, null, 2), 'utf8');
+  } catch (e) {
+    console.error('Failed to write albums backup:', e);
+  }
+}
+
+function loadBackup(): DbAlbum[] {
+  ensureDataDir();
+  try {
+    if (fs.existsSync(backupFilePath)) {
+      const raw = fs.readFileSync(backupFilePath, 'utf8');
+      const data = JSON.parse(raw);
+      if (Array.isArray(data)) return data;
+    }
+  } catch (e) {
+    console.error('Failed to read albums backup:', e);
+  }
+  return [];
+}
+
 export interface DbAlbum {
   id: string;
   title: string;
@@ -135,12 +173,14 @@ export interface DbAlbum {
 }
 
 export async function getAllAlbums(): Promise<DbAlbum[]> {
+  let albums: DbAlbum[] = [];
+
   const client = getTursoClient();
   if (client) {
     try {
       await ensureTursoSchema(client);
       const res = await client.execute('SELECT * FROM albums ORDER BY created_at DESC');
-      return res.rows.map((row: any) => ({
+      albums = res.rows.map((row: any) => ({
         id: row.id,
         title: row.title,
         description: row.description,
@@ -151,15 +191,40 @@ export async function getAllAlbums(): Promise<DbAlbum[]> {
     } catch (e) {
       console.error('Turso DB getAllAlbums error:', e);
     }
+  } else {
+    try {
+      const db = getLocalDb();
+      const statement = db.prepare('SELECT * FROM albums ORDER BY created_at DESC');
+      const rows = statement.all() as DbAlbum[];
+      albums = rows.map((row) => ({
+        ...row,
+        mega_link: decryptText(row.mega_link),
+      }));
+    } catch (e) {
+      console.error('Local DB getAllAlbums error:', e);
+    }
   }
 
-  const db = getLocalDb();
-  const statement = db.prepare('SELECT * FROM albums ORDER BY created_at DESC');
-  const rows = statement.all() as DbAlbum[];
-  return rows.map((row) => ({
-    ...row,
-    mega_link: decryptText(row.mega_link),
-  }));
+  // Auto-hydration: If DB returned 0 albums but backup exists (e.g. after container redeployment), restore from backup!
+  if (albums.length === 0) {
+    const backupAlbums = loadBackup();
+    if (backupAlbums.length > 0) {
+      console.log(`[MegaVault] Auto-hydrating ${backupAlbums.length} albums from persistent backup...`);
+      for (const alb of backupAlbums) {
+        try {
+          await createAlbumInternal(alb);
+        } catch (err) {
+          console.error(`Failed to restore album ${alb.id}:`, err);
+        }
+      }
+      return backupAlbums;
+    }
+  } else {
+    // Keep backup in sync
+    syncBackup(albums);
+  }
+
+  return albums;
 }
 
 export async function getAlbumById(id: string): Promise<DbAlbum | undefined> {
@@ -171,28 +236,84 @@ export async function getAlbumById(id: string): Promise<DbAlbum | undefined> {
         sql: 'SELECT * FROM albums WHERE id = ?',
         args: [id],
       });
-      if (res.rows.length === 0) return undefined;
-      const row: any = res.rows[0];
-      return {
-        id: row.id,
-        title: row.title,
-        description: row.description,
-        mega_link: decryptText(row.mega_link),
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-      };
+      if (res.rows.length > 0) {
+        const row: any = res.rows[0];
+        return {
+          id: row.id,
+          title: row.title,
+          description: row.description,
+          mega_link: decryptText(row.mega_link),
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+        };
+      }
     } catch (e) {
       console.error('Turso DB getAlbumById error:', e);
     }
   }
 
-  const db = getLocalDb();
-  const statement = db.prepare('SELECT * FROM albums WHERE id = ?');
-  const row = statement.get(id) as DbAlbum | undefined;
-  if (!row) return undefined;
+  try {
+    const db = getLocalDb();
+    const statement = db.prepare('SELECT * FROM albums WHERE id = ?');
+    const row = statement.get(id) as DbAlbum | undefined;
+    if (row) {
+      return {
+        ...row,
+        mega_link: decryptText(row.mega_link),
+      };
+    }
+  } catch (e) {
+    console.error('Local DB getAlbumById error:', e);
+  }
+
+  // Fallback to backup if DB lookup fails
+  const backupAlbums = loadBackup();
+  return backupAlbums.find((a) => a.id === id);
+}
+
+async function createAlbumInternal(album: {
+  id: string;
+  title: string;
+  description?: string | null;
+  mega_link: string;
+  created_at?: string;
+  updated_at?: string | null;
+}): Promise<DbAlbum> {
+  const now = album.created_at || new Date().toISOString();
+  const encryptedLink = encryptText(album.mega_link);
+  const updated = album.updated_at || now;
+
+  const client = getTursoClient();
+  if (client) {
+    try {
+      await ensureTursoSchema(client);
+      await client.execute({
+        sql: `INSERT OR REPLACE INTO albums (id, title, description, mega_link, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+        args: [album.id, album.title, album.description || null, encryptedLink, now, updated],
+      });
+    } catch (e) {
+      console.error('Turso DB createAlbumInternal error:', e);
+    }
+  }
+
+  try {
+    const db = getLocalDb();
+    const statement = db.prepare(`
+      INSERT OR REPLACE INTO albums (id, title, description, mega_link, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    statement.run(album.id, album.title, album.description || null, encryptedLink, now, updated);
+  } catch (e) {
+    console.error('Local DB createAlbumInternal error:', e);
+  }
+
   return {
-    ...row,
-    mega_link: decryptText(row.mega_link),
+    id: album.id,
+    title: album.title,
+    description: album.description || null,
+    mega_link: album.mega_link,
+    created_at: now,
+    updated_at: updated,
   };
 }
 
@@ -202,48 +323,24 @@ export async function createAlbum(album: {
   description?: string;
   megaLink: string;
 }): Promise<DbAlbum> {
-  const now = new Date().toISOString();
-  const encryptedLink = encryptText(album.megaLink);
-
-  const client = getTursoClient();
-  if (client) {
-    try {
-      await ensureTursoSchema(client);
-      await client.execute({
-        sql: `INSERT INTO albums (id, title, description, mega_link, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
-        args: [album.id, album.title, album.description || null, encryptedLink, now, now],
-      });
-      return {
-        id: album.id,
-        title: album.title,
-        description: album.description || null,
-        mega_link: album.megaLink,
-        created_at: now,
-        updated_at: now,
-      };
-    } catch (e) {
-      console.error('Turso DB createAlbum error:', e);
-    }
-  }
-
-  const db = getLocalDb();
-  const statement = db.prepare(`
-    INSERT INTO albums (id, title, description, mega_link, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `);
-  statement.run(album.id, album.title, album.description || null, encryptedLink, now, now);
-
-  return {
+  const created = await createAlbumInternal({
     id: album.id,
     title: album.title,
-    description: album.description || null,
+    description: album.description,
     mega_link: album.megaLink,
-    created_at: now,
-    updated_at: now,
-  };
+  });
+
+  // Sync with persistent backup file
+  const currentBackup = loadBackup();
+  const filtered = currentBackup.filter((a) => a.id !== created.id);
+  filtered.unshift(created);
+  syncBackup(filtered);
+
+  return created;
 }
 
 export async function deleteAlbum(id: string): Promise<boolean> {
+  let success = false;
   const client = getTursoClient();
   if (client) {
     try {
@@ -252,14 +349,29 @@ export async function deleteAlbum(id: string): Promise<boolean> {
         sql: 'DELETE FROM albums WHERE id = ?',
         args: [id],
       });
-      return res.rowsAffected > 0;
+      if (res.rowsAffected > 0) success = true;
     } catch (e) {
       console.error('Turso DB deleteAlbum error:', e);
     }
   }
 
-  const db = getLocalDb();
-  const statement = db.prepare('DELETE FROM albums WHERE id = ?');
-  const info = statement.run(id);
-  return info.changes > 0;
+  try {
+    const db = getLocalDb();
+    const statement = db.prepare('DELETE FROM albums WHERE id = ?');
+    const info = statement.run(id);
+    if (info.changes > 0) success = true;
+  } catch (e) {
+    console.error('Local DB deleteAlbum error:', e);
+  }
+
+  // Also remove from persistent backup file
+  const currentBackup = loadBackup();
+  const updatedBackup = currentBackup.filter((a) => a.id !== id);
+  if (updatedBackup.length !== currentBackup.length) {
+    syncBackup(updatedBackup);
+    success = true;
+  }
+
+  return success;
 }
+

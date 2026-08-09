@@ -13,6 +13,7 @@ interface DisplayFolder {
   folderName: string;
   subfolderPath: string;
   itemCount: number;
+  subfolderCount?: number;
   megaUrl: string;
   createdAt: string;
 }
@@ -43,13 +44,20 @@ export default function HomePage() {
       // Fetch subfolder trees for all albums in PARALLEL (not sequentially)
       const results = await Promise.allSettled(
         loadedAlbums.map(async (alb) => {
-          const mediaRes = await fetch(`/api/albums/${alb.id}/media`);
-          if (mediaRes.status === 401 || mediaRes.redirected) {
-            window.location.href = '/login';
-            return null;
+          try {
+            const mediaRes = await fetch(`/api/albums/${alb.id}/media`);
+            if (mediaRes.status === 401 || mediaRes.redirected) {
+              window.location.href = '/login';
+              return null;
+            }
+            if (!mediaRes.ok) {
+              return { alb, mediaData: { subfolders: [], mediaCount: alb.mediaCount || { total: 0, images: 0, videos: 0 } } };
+            }
+            const mediaData = await mediaRes.json();
+            return { alb, mediaData };
+          } catch (e) {
+            return { alb, mediaData: { subfolders: [], mediaCount: alb.mediaCount || { total: 0, images: 0, videos: 0 } } };
           }
-          if (!mediaRes.ok) return null;
-          return { alb, mediaData: await mediaRes.json() };
         })
       );
 
@@ -58,7 +66,13 @@ export default function HomePage() {
         if (result.status !== 'fulfilled' || !result.value) continue;
         const { alb, mediaData } = result.value;
 
-        if (mediaData.subfolders && mediaData.subfolders.length > 0) {
+        // ONLY hide folder if link is confirmed permanently dead/invalid
+        if (mediaData && mediaData.isDeadLink) {
+          console.warn(`[MegaVault] Skipping album ${alb.title} (${alb.id}) because its link is dead/invalid.`);
+          continue;
+        }
+
+        if (mediaData && mediaData.subfolders && mediaData.subfolders.length > 0) {
           // Folder has subfolders → render each subfolder as a card
           for (const sub of mediaData.subfolders) {
             foldersList.push({
@@ -78,7 +92,8 @@ export default function HomePage() {
             albumTitle: alb.title,
             folderName: alb.title,
             subfolderPath: '',
-            itemCount: alb.mediaCount?.total || 0,
+            itemCount: mediaData?.mediaCount?.total ?? alb.mediaCount?.total ?? 0,
+            subfolderCount: mediaData?.subfolders?.length ?? alb.subfolderCount ?? 0,
             megaUrl: alb.megaUrl || '',
             createdAt: alb.createdAt,
           });
@@ -219,7 +234,11 @@ export default function HomePage() {
                         {folder.folderName}
                       </h3>
                       <p className="text-xs text-zinc-400 mt-1 flex items-center gap-2 font-medium">
-                        <span>{folder.itemCount} media items</span>
+                        <span>
+                          {folder.itemCount === 0 && (folder.subfolderCount || 0) > 0
+                            ? `${folder.subfolderCount} ${folder.subfolderCount === 1 ? 'Subfolder' : 'Subfolders'}`
+                            : `${folder.itemCount} media items`}
+                        </span>
                         {folder.albumTitle !== folder.folderName && (
                           <span className="text-[10px] px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-zinc-400">
                             {folder.albumTitle}

@@ -35,6 +35,7 @@ export interface Album {
     images: number;
     videos: number;
   };
+  subfolderCount?: number;
   status?: 'ACTIVE' | 'SYNCING' | 'UNAVAILABLE';
   createdAt: string;
   updatedAt?: string;

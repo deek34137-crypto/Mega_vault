@@ -13,6 +13,9 @@ import {
   X,
   Download,
   Info,
+  Loader2,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { formatBytes, formatDuration } from '@/lib/utils/cn';
 import { MediaItem } from '@/types';
@@ -38,6 +41,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
 
   const [isPlaying, setIsPlaying] = useState(true);
+  const [isBuffering, setIsBuffering] = useState(true);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
@@ -64,6 +68,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const seek = useCallback((seconds: number) => {
     if (!videoRef.current) return;
+    setIsBuffering(true);
     videoRef.current.currentTime = Math.max(0, Math.min(videoRef.current.duration, videoRef.current.currentTime + seconds));
   }, []);
 
@@ -91,7 +96,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     } else {
       document.exitFullscreen().catch((err) => console.error(err));
     }
-    // State is updated via the fullscreenchange listener below — not here
   }, []);
 
   // Sync fullscreen state from the browser event (reliable on all browsers)
@@ -106,7 +110,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // Keyboard Shortcuts Handler
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't trigger if user is typing in an input
       if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return;
 
       switch (e.code) {
@@ -117,19 +120,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           break;
         case 'ArrowRight':
           e.preventDefault();
-          seek(5); // +5s
+          seek(5);
           break;
         case 'ArrowLeft':
           e.preventDefault();
-          seek(-5); // -5s
+          seek(-5);
           break;
         case 'KeyL':
           e.preventDefault();
-          seek(10); // +10s
+          seek(10);
           break;
         case 'KeyJ':
           e.preventDefault();
-          seek(-10); // -10s
+          seek(-10);
           break;
         case 'ArrowUp':
           e.preventDefault();
@@ -167,15 +170,62 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       <video
         ref={videoRef}
         autoPlay
+        preload="auto"
         src={media.streamUrl}
         onClick={togglePlay}
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
+        onWaiting={() => setIsBuffering(true)}
+        onPlaying={() => setIsBuffering(false)}
+        onSeeking={() => setIsBuffering(true)}
+        onSeeked={() => setIsBuffering(false)}
+        onCanPlay={() => setIsBuffering(false)}
         onTimeUpdate={() => videoRef.current && setCurrentTime(videoRef.current.currentTime)}
         onLoadedMetadata={() => videoRef.current && setDuration(videoRef.current.duration)}
         onEnded={() => setIsPlaying(false)}
         className="max-h-screen w-full object-contain cursor-pointer"
       />
+
+      {/* Buffering Indicator Overlay */}
+      {isBuffering && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30 bg-black/30 backdrop-blur-[2px]">
+          <div className="p-4 rounded-2xl bg-zinc-900/90 border border-zinc-800 text-blue-400 flex items-center gap-3 shadow-2xl">
+            <Loader2 className="w-6 h-6 animate-spin text-blue-400" />
+            <span className="text-xs font-semibold text-zinc-200">Buffering video...</span>
+          </div>
+        </div>
+      )}
+
+      {/* Sideways Navigation Buttons (Previous / Next Media) */}
+      {onPrev && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onPrev();
+          }}
+          title="Previous Media"
+          className={`absolute left-4 top-1/2 -translate-y-1/2 p-3.5 rounded-full bg-zinc-900/80 hover:bg-blue-600 text-zinc-300 hover:text-white border border-zinc-700/80 hover:border-blue-500 backdrop-blur-md z-40 transition-all duration-200 shadow-2xl ${
+            showOverlay ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'
+          }`}
+        >
+          <ChevronLeft className="w-6 h-6" />
+        </button>
+      )}
+
+      {onNext && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onNext();
+          }}
+          title="Next Media"
+          className={`absolute right-4 top-1/2 -translate-y-1/2 p-3.5 rounded-full bg-zinc-900/80 hover:bg-blue-600 text-zinc-300 hover:text-white border border-zinc-700/80 hover:border-blue-500 backdrop-blur-md z-40 transition-all duration-200 shadow-2xl ${
+            showOverlay ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'
+          }`}
+        >
+          <ChevronRight className="w-6 h-6" />
+        </button>
+      )}
 
       {/* Top Header Overlay */}
       <div

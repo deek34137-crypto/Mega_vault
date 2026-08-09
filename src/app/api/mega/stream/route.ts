@@ -4,6 +4,11 @@ import { getMegaFileByHandle, fetchMegaFolderMedia } from '@/lib/mega';
 import { isAuthenticated } from '@/lib/auth';
 import { Readable } from 'stream';
 
+export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
+
+const MAX_STREAM_CHUNK_SIZE = 4 * 1024 * 1024; // 4MB chunk cap for instant video buffering & fast seeking
+
 export async function GET(request: Request) {
   const auth = await isAuthenticated();
   if (!auth) {
@@ -58,7 +63,13 @@ export async function GET(request: Request) {
     if (range && fileSize > 0) {
       const parts = range.replace(/bytes=/, '').split('-');
       const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      let end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+
+      // Cap chunk size to 4MB max per range request for fast buffering & instant seeking
+      if (end - start + 1 > MAX_STREAM_CHUNK_SIZE) {
+        end = Math.min(start + MAX_STREAM_CHUNK_SIZE - 1, fileSize - 1);
+      }
+
       const chunkSize = end - start + 1;
 
       const nodeStream = targetFile.download({ start, end });
@@ -72,23 +83,29 @@ export async function GET(request: Request) {
           'Content-Length': chunkSize.toString(),
           'Content-Type': mimeType,
           'Content-Disposition': `inline; filename="${encodeURIComponent(fileName)}"`,
-          'Cache-Control': 'public, max-age=3600',
+          'Cache-Control': 'public, max-age=86400, immutable',
         },
       });
     }
 
-    // Full content stream
-    const nodeStream = targetFile.download();
+    // Full content stream capped to initial 4MB chunk if un-ranged
+    const end = fileSize > 0 ? Math.min(MAX_STREAM_CHUNK_SIZE - 1, fileSize - 1) : undefined;
+    const nodeStream = targetFile.download(end !== undefined ? { start: 0, end } : undefined);
     const webStream = Readable.toWeb(nodeStream);
 
     return new Response(webStream as any, {
-      status: 200,
+      status: end !== undefined ? 206 : 200,
       headers: {
         'Content-Type': mimeType,
-        'Content-Length': fileSize.toString(),
+        ...(end !== undefined
+          ? {
+              'Content-Range': `bytes 0-${end}/${fileSize}`,
+              'Content-Length': (end + 1).toString(),
+            }
+          : { 'Content-Length': fileSize.toString() }),
         'Content-Disposition': `inline; filename="${encodeURIComponent(fileName)}"`,
         'Accept-Ranges': 'bytes',
-        'Cache-Control': 'public, max-age=3600',
+        'Cache-Control': 'public, max-age=86400, immutable',
       },
     });
   } catch (error) {

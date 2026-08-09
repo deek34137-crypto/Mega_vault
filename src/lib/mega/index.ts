@@ -1,6 +1,7 @@
 import { File as MegaFile } from 'megajs';
 import { MediaItem, MediaType } from '@/types';
 import { mediaCache } from '@/lib/cache';
+import { getFolderSnapshot, saveFolderSnapshot, removeFolderSnapshot } from '@/lib/cache/snapshots';
 import { SUPPORTED_IMAGE_EXTENSIONS, SUPPORTED_VIDEO_EXTENSIONS, MOCK_MEDIA } from '@/lib/constants';
 
 export interface MegaFolderResult {
@@ -16,6 +17,9 @@ export interface MegaFolderResult {
     images: number;
     videos: number;
   };
+  isFromSnapshot?: boolean;
+  isDeadLink?: boolean;
+  errorMessage?: string;
 }
 
 // Global in-memory cache for loaded MEGA root folder objects
@@ -113,6 +117,37 @@ function buildHandleMap(node: any, map = new Map<string, any>()): Map<string, an
   return map;
 }
 
+// Promisified loadAttributes with retries & timeout resilience
+async function loadAttributesWithRetry(rootFolder: any, maxAttempts = 2): Promise<any> {
+  let lastErr: any = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error('MEGA loadAttributes connection timed out'));
+        }, 35000);
+
+        rootFolder.loadAttributes((err: any, folder: any) => {
+          clearTimeout(timeout);
+          if (err) reject(err);
+          else resolve(folder);
+        });
+      });
+    } catch (err) {
+      lastErr = err;
+      const msg = String((err as any)?.message || err).toLowerCase();
+      // Do not retry if link is explicitly dead/invalid
+      if (msg.includes('enoent') || msg.includes('does not exist') || msg.includes('invalid key') || msg.includes('404')) {
+        throw err;
+      }
+      if (attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    }
+  }
+  throw lastErr;
+}
+
 // Fetch or reuse cached root MEGA folder node with Promise deduplication
 async function getOrFetchRootFolder(megaUrl: string, forceRefresh = false): Promise<CachedRootNode> {
   if (!forceRefresh) {
@@ -134,19 +169,7 @@ async function getOrFetchRootFolder(megaUrl: string, forceRefresh = false): Prom
   const fetchPromise = (async () => {
     try {
       const rootFolder = MegaFile.fromURL(megaUrl);
-
-      // Promisified loadAttributes with timeout resilience
-      await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error('MEGA loadAttributes connection timed out'));
-        }, 45000);
-
-        rootFolder.loadAttributes((err: any, folder: any) => {
-          clearTimeout(timeout);
-          if (err) reject(err);
-          else resolve(folder);
-        });
-      });
+      await loadAttributesWithRetry(rootFolder, 2);
 
       const handleMap = buildHandleMap(rootFolder);
       const entry: CachedRootNode = {
@@ -226,6 +249,7 @@ export async function fetchMegaFolderMedia(
       },
     };
     mediaCache.set(cacheKey, result);
+    saveFolderSnapshot(cacheKey, result);
     return result;
   }
 
@@ -337,14 +361,48 @@ export async function fetchMegaFolderMedia(
     };
 
     mediaCache.set(cacheKey, result);
+    saveFolderSnapshot(cacheKey, result);
     return result;
   } catch (error) {
     console.error('Error reading MEGA folder link:', error);
+
+    const errMsg = String((error as any)?.message || error).toLowerCase();
+    const isExplicitDeadLink =
+      errMsg.includes('enoent') ||
+      errMsg.includes('does not exist') ||
+      errMsg.includes('invalid key') ||
+      errMsg.includes('404') ||
+      errMsg.includes('blocked') ||
+      errMsg.includes('access denied');
+
+    if (isExplicitDeadLink) {
+      return {
+        albumId,
+        items: [],
+        subfolders: [],
+        mediaCount: { total: 0, images: 0, videos: 0 },
+        isDeadLink: true,
+        errorMessage: 'MEGA folder link is no longer accessible or has been deleted.',
+      };
+    }
+
+    // Temporary network error / cold start delay: Fall back to persistent snapshot!
+    const snapshot = getFolderSnapshot(cacheKey);
+    if (snapshot) {
+      console.log(`[MegaVault] Returning disk snapshot for ${cacheKey} due to temporary MEGA fetch failure.`);
+      return {
+        ...snapshot,
+        isFromSnapshot: true,
+        errorMessage: 'Using saved folder snapshot (live MEGA sync delayed).',
+      };
+    }
+
     return {
       albumId,
       items: [],
       subfolders: [],
       mediaCount: { total: 0, images: 0, videos: 0 },
+      errorMessage: 'Temporary network issue connecting to MEGA.',
     };
   }
 }
@@ -355,4 +413,6 @@ export function clearMegaFolderCache(albumId: string, megaUrl: string) {
   // Clear all cache entries for this album (root + every subfolder path)
   const prefix = `mega_media_${albumId}_${megaUrl}_`;
   mediaCache.clearByPrefix(prefix);
+  removeFolderSnapshot(prefix);
 }
+
