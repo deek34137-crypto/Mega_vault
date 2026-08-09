@@ -65,9 +65,13 @@ export async function GET(request: Request) {
       const start = parseInt(parts[0], 10);
       let end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
 
-      // Cap chunk size to 4MB max per range request for fast buffering & instant seeking
-      if (end - start + 1 > MAX_STREAM_CHUNK_SIZE) {
-        end = Math.min(start + MAX_STREAM_CHUNK_SIZE - 1, fileSize - 1);
+      // Adaptive Chunk Sizing for Large Files (400MB - 1.3GB+):
+      // - First request at start=0: 4MB chunk for instant 200ms playback start
+      // - Sustained playback (start > 0): 16MB chunk to keep 1080p/4K bitrate smooth without frequent range request bottlenecks
+      const maxChunk = start === 0 ? 4 * 1024 * 1024 : 16 * 1024 * 1024;
+
+      if (end - start + 1 > maxChunk) {
+        end = Math.min(start + maxChunk - 1, fileSize - 1);
       }
 
       const chunkSize = end - start + 1;
@@ -89,7 +93,7 @@ export async function GET(request: Request) {
     }
 
     // Full content stream capped to initial 4MB chunk if un-ranged
-    const end = fileSize > 0 ? Math.min(MAX_STREAM_CHUNK_SIZE - 1, fileSize - 1) : undefined;
+    const end = fileSize > 0 ? Math.min(4 * 1024 * 1024 - 1, fileSize - 1) : undefined;
     const nodeStream = targetFile.download(end !== undefined ? { start: 0, end } : undefined);
     const webStream = Readable.toWeb(nodeStream);
 

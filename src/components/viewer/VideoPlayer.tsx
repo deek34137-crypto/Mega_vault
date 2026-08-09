@@ -198,6 +198,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       <video
         ref={videoRef}
         autoPlay
+        playsInline
         preload="auto"
         src={media.streamUrl}
         onClick={togglePlay}
