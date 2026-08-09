@@ -77,27 +77,40 @@ export async function fetchMegaFolderMedia(
 
     let targetNode: any = rootFolder;
 
-    // Navigate to specified subfolder path if present
+    // Navigate subfolder path safely with loadAttributes on each level
     if (subfolderPath) {
-      const pathParts = subfolderPath.split('/');
+      const pathParts = subfolderPath.split('/').map((p) => p.trim()).filter(Boolean);
+      
       for (const part of pathParts) {
-        if (!part) continue;
+        if (!targetNode) break;
+
+        // Ensure current node children are loaded
         if (targetNode.directory && (!targetNode.children || targetNode.children.length === 0)) {
           try {
             await targetNode.loadAttributes();
-          } catch (e) {}
+          } catch (e) {
+            console.warn('Load attributes warning for node:', targetNode.name, e);
+          }
         }
 
-        if (targetNode.children) {
-          const match = targetNode.children.find((c: any) => c.directory && c.name === part);
+        if (targetNode.children && Array.isArray(targetNode.children)) {
+          const match = targetNode.children.find(
+            (c: any) => c.directory && (c.name?.trim() === part || c.name?.trim().toLowerCase() === part.toLowerCase())
+          );
+
           if (match) {
             targetNode = match;
+            if (!targetNode.children || targetNode.children.length === 0) {
+              try {
+                await targetNode.loadAttributes();
+              } catch (e) {}
+            }
           }
         }
       }
     }
 
-    // Ensure target node attributes are loaded
+    // Ensure final target node attributes are fully loaded
     if (targetNode.directory && (!targetNode.children || targetNode.children.length === 0)) {
       try {
         await targetNode.loadAttributes();
@@ -112,17 +125,20 @@ export async function fetchMegaFolderMedia(
     if (targetNode.children && Array.isArray(targetNode.children)) {
       for (const child of targetNode.children) {
         if (child.directory) {
-          // Load subfolder attributes to count items
+          let childCount = 0;
           try {
             if (!child.children || child.children.length === 0) {
               await child.loadAttributes();
             }
+            childCount = child.children ? child.children.length : 0;
           } catch (e) {}
 
-          const childCount = child.children ? child.children.length : 0;
+          const childName = child.name || 'Subfolder';
+          const fullSubPath = subfolderPath ? `${subfolderPath}/${childName}` : childName;
+
           detectedSubfolders.push({
-            name: child.name || 'Subfolder',
-            path: subfolderPath ? `${subfolderPath}/${child.name}` : child.name,
+            name: childName,
+            path: fullSubPath,
             itemCount: childCount,
           });
         } else {

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, Suspense } from 'react';
 import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
 import { PageContainer } from '@/components/layout/PageContainer';
@@ -14,7 +14,6 @@ import {
   RefreshCw,
   Search,
   X,
-  Play,
   Download,
   ChevronLeft,
   ChevronRight,
@@ -29,13 +28,13 @@ interface SubfolderItem {
   itemCount: number;
 }
 
-export default function AlbumDetailsPage() {
+function AlbumContent() {
   const params = useParams();
   const searchParams = useSearchParams();
 
   const rawId = params?.id;
   const albumId = Array.isArray(rawId) ? rawId[0] : (rawId as string) || '';
-  const folderParam = searchParams.get('folder') || '';
+  const folderParam = searchParams?.get('folder') || '';
 
   const [album, setAlbum] = useState<Album | null>(null);
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
@@ -363,5 +362,17 @@ export default function AlbumDetailsPage() {
         </div>
       )}
     </PageContainer>
+  );
+}
+
+export default function AlbumDetailsPageWrapper() {
+  return (
+    <Suspense fallback={
+      <PageContainer>
+        <div className="h-64 rounded-3xl bg-zinc-900/60 animate-pulse border border-zinc-800" />
+      </PageContainer>
+    }>
+      <AlbumContent />
+    </Suspense>
   );
 }
