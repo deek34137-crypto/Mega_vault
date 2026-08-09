@@ -120,24 +120,7 @@ function getLocalDb(): Database.Database {
       // Column already exists — ignore
     }
 
-    const countStmt = localDb.prepare('SELECT COUNT(*) as count FROM albums');
-    const result = countStmt.get() as { count: number };
-
-    if (result.count === 0) {
-      const now = new Date().toISOString();
-      const insertStmt = localDb.prepare(`
-        INSERT INTO albums (id, title, description, mega_link, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `);
-      insertStmt.run(
-        'alb-family',
-        'Family Summer Vacation',
-        'Beach sunset photos and drone highlight videos',
-        encryptText('https://mega.nz/folder/example#key1'),
-        now,
-        now
-      );
-    }
+    // Database table ready
   }
   return localDb;
 }

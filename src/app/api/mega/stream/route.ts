@@ -71,6 +71,7 @@ export async function GET(request: Request) {
           'Accept-Ranges': 'bytes',
           'Content-Length': chunkSize.toString(),
           'Content-Type': mimeType,
+          'Content-Disposition': `inline; filename="${encodeURIComponent(fileName)}"`,
           'Cache-Control': 'public, max-age=3600',
         },
       });
@@ -85,6 +86,7 @@ export async function GET(request: Request) {
       headers: {
         'Content-Type': mimeType,
         'Content-Length': fileSize.toString(),
+        'Content-Disposition': `inline; filename="${encodeURIComponent(fileName)}"`,
         'Accept-Ranges': 'bytes',
         'Cache-Control': 'public, max-age=3600',
       },

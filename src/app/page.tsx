@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { AlbumCard } from '@/components/gallery/AlbumCard';
@@ -26,7 +26,7 @@ export default function HomePage() {
   const [newDescription, setNewDescription] = useState('');
   const [newMegaUrl, setNewMegaUrl] = useState('');
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setIsLoading(true);
       const res = await fetch('/api/albums');
@@ -90,11 +90,11 @@ export default function HomePage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
