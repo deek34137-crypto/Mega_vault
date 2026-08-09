@@ -13,7 +13,15 @@ export async function GET(
   const album = await getAlbumById(id);
   if (!album) return NextResponse.json({ error: 'Album not found' }, { status: 404 });
 
-  return NextResponse.json({ album });
+  const safeAlbum = {
+    id: album.id,
+    title: album.title,
+    description: album.description,
+    createdAt: album.created_at,
+    updatedAt: album.updated_at ?? album.created_at,
+  };
+
+  return NextResponse.json({ album: safeAlbum });
 }
 
 export async function DELETE(

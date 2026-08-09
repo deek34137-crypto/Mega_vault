@@ -40,11 +40,17 @@ export async function GET(request: Request) {
     const fileName = targetFile.name || 'video.mp4';
     const ext = fileName.split('.').pop()?.toLowerCase() || '';
 
-    let mimeType = 'video/mp4';
-    if (ext === 'webm') mimeType = 'video/webm';
-    if (ext === 'mov') mimeType = 'video/quicktime';
-    if (ext === 'mkv') mimeType = 'video/x-matroska';
-    if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) mimeType = `image/${ext}`;
+    let mimeType = 'application/octet-stream';
+    if (ext === 'mp4') mimeType = 'video/mp4';
+    else if (ext === 'webm') mimeType = 'video/webm';
+    else if (ext === 'mov') mimeType = 'video/quicktime';
+    else if (ext === 'mkv') mimeType = 'video/x-matroska';
+    else if (['jpg', 'jpeg'].includes(ext)) mimeType = 'image/jpeg';
+    else if (ext === 'png') mimeType = 'image/png';
+    else if (ext === 'webp') mimeType = 'image/webp';
+    else if (ext === 'gif') mimeType = 'image/gif';
+    else if (ext === 'heic') mimeType = 'image/heic';
+    else if (ext === 'svg') mimeType = 'image/svg+xml';
 
     const range = request.headers.get('range');
 
@@ -71,7 +77,7 @@ export async function GET(request: Request) {
     }
 
     // Full content stream
-    const nodeStream = targetFile.download({});
+    const nodeStream = targetFile.download();
     const webStream = Readable.toWeb(nodeStream);
 
     return new Response(webStream as any, {

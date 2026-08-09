@@ -7,69 +7,48 @@ import { AlbumCard } from '@/components/gallery/AlbumCard';
 import { Album } from '@/types';
 import { Plus, Search, FolderPlus, Link as LinkIcon, HardDrive, X, PlayCircle } from 'lucide-react';
 
+import { useAlbums } from '@/hooks/useAlbums';
+
 export default function AlbumsPage() {
-  const [albums, setAlbums] = useState<Album[]>([]);
+  const { albums, isLoading, deleteAlbum, createAlbum } = useAlbums();
   const [searchQuery, setSearchQuery] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newDescription, setNewDescription] = useState('');
   const [newMegaUrl, setNewMegaUrl] = useState('');
 
-  const loadAlbums = async () => {
-    try {
-      const res = await fetch('/api/albums');
-      if (res.ok) {
-        const data = await res.json();
-        setAlbums(data.albums || []);
-      }
-    } catch (err) {
-      console.error('Error loading albums:', err);
-    }
-  };
-
-  useEffect(() => {
-    loadAlbums();
-  }, []);
-
   const handleCreateAlbum = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTitle || !newMegaUrl) return;
+    if (!newTitle || !newMegaUrl || isSubmitting) return;
 
     try {
-      const res = await fetch('/api/albums', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: newTitle,
-          description: newDescription,
-          megaUrl: newMegaUrl,
-        }),
+      setIsSubmitting(true);
+      const res = await createAlbum({
+        title: newTitle,
+        description: newDescription,
+        megaUrl: newMegaUrl,
       });
 
-      if (res.ok) {
+      if (res.success) {
         setNewTitle('');
         setNewDescription('');
         setNewMegaUrl('');
         setIsAddModalOpen(false);
-        loadAlbums();
       } else {
-        alert('Failed to add album');
+        alert(res.error || 'Failed to add album');
       }
     } catch (err) {
       alert('Error creating album');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleDeleteAlbum = async (id: string) => {
-    try {
-      const res = await fetch(`/api/albums/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        loadAlbums();
-      } else {
-        alert('Failed to remove album');
-      }
-    } catch (err) {
-      alert('Error removing album');
+    const ok = await deleteAlbum(id);
+    if (!ok) {
+      alert('Failed to remove album');
     }
   };
 
@@ -213,9 +192,10 @@ export default function AlbumsPage() {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold transition-all shadow-md shadow-blue-600/20"
+                  disabled={isSubmitting}
+                  className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-semibold transition-all shadow-md shadow-blue-600/20"
                 >
-                  Save Album
+                  {isSubmitting ? 'Saving Album...' : 'Save Album'}
                 </button>
               </div>
             </form>

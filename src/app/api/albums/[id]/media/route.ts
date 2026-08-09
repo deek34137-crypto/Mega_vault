@@ -44,7 +44,15 @@ export async function GET(
     const fetchPromise = fetchMegaFolderMedia(album.id, album.mega_link, subfolderPath);
     const result: any = await Promise.race([fetchPromise, timeoutPromise]);
 
-    return NextResponse.json({ album, ...result });
+    const safeAlbum = {
+      id: album.id,
+      title: album.title,
+      description: album.description,
+      createdAt: album.created_at,
+      updatedAt: album.updated_at ?? album.created_at,
+    };
+
+    return NextResponse.json({ album: safeAlbum, ...result });
   } catch (error) {
     console.error('Error fetching album media:', error);
     return NextResponse.json({

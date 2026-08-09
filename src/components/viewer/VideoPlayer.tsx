@@ -56,11 +56,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const togglePlay = useCallback(() => {
     if (!videoRef.current) return;
     if (videoRef.current.paused) {
-      videoRef.current.play();
-      setIsPlaying(true);
+      videoRef.current.play().catch((err) => console.error('Video play failed:', err));
     } else {
       videoRef.current.pause();
-      setIsPlaying(false);
     }
   }, []);
 
@@ -171,6 +169,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         autoPlay
         src={media.streamUrl}
         onClick={togglePlay}
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
         onTimeUpdate={() => videoRef.current && setCurrentTime(videoRef.current.currentTime)}
         onLoadedMetadata={() => videoRef.current && setDuration(videoRef.current.duration)}
         onEnded={() => setIsPlaying(false)}

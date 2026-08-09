@@ -57,14 +57,17 @@ function normalizeName(str: string): string {
   return str ? str.trim().toLowerCase().replace(/[^a-z0-9]/g, '') : '';
 }
 
+const failedFetchCooldowns = new Map<string, number>();
+const ERROR_COOLDOWN_MS = 15 * 1000; // 15 second retry cooldown after failure
+
 // Build a flat lookup map of file handles to nodes for instant stream retrieval
 function buildHandleMap(node: any, map = new Map<string, any>()): Map<string, any> {
   if (!node) return map;
 
   if (node.downloadId) {
     map.set(node.downloadId, node);
-  }
-  if (node.name) {
+  } else if (node.name && !map.has(node.name)) {
+    // Only map name if downloadId is absent and name isn't already taken (prevents collisions)
     map.set(node.name, node);
   }
 
@@ -83,6 +86,11 @@ async function getOrFetchRootFolder(megaUrl: string, forceRefresh = false): Prom
     const cached = megaRootCache.get(megaUrl);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
       return cached;
+    }
+
+    const lastFailed = failedFetchCooldowns.get(megaUrl);
+    if (lastFailed && Date.now() - lastFailed < ERROR_COOLDOWN_MS) {
+      throw new Error('MEGA connection recently failed. Retrying too quickly — please wait a moment.');
     }
   }
 
@@ -114,8 +122,12 @@ async function getOrFetchRootFolder(megaUrl: string, forceRefresh = false): Prom
         handleMap,
       };
 
+      failedFetchCooldowns.delete(megaUrl);
       megaRootCache.set(megaUrl, entry);
       return entry;
+    } catch (err) {
+      failedFetchCooldowns.set(megaUrl, Date.now());
+      throw err;
     } finally {
       pendingRootPromises.delete(megaUrl);
     }

@@ -119,6 +119,11 @@ function AlbumContent() {
     return () => observer.disconnect();
   }, [mediaItems.length]);
 
+  // Reset pagination count on search or filter changes
+  useEffect(() => {
+    setVisibleCount(ITEMS_PER_PAGE);
+  }, [searchQuery, mediaTypeFilter]);
+
   const handleRefresh = async () => {
     if (!albumId) return;
 

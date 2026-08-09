@@ -30,6 +30,10 @@ export default function HomePage() {
     try {
       setIsLoading(true);
       const res = await fetch('/api/albums');
+      if (res.status === 401 || res.redirected) {
+        window.location.href = '/login';
+        return;
+      }
       if (!res.ok) return;
 
       const data = await res.json();
@@ -40,6 +44,10 @@ export default function HomePage() {
       const results = await Promise.allSettled(
         loadedAlbums.map(async (alb) => {
           const mediaRes = await fetch(`/api/albums/${alb.id}/media`);
+          if (mediaRes.status === 401 || mediaRes.redirected) {
+            window.location.href = '/login';
+            return null;
+          }
           if (!mediaRes.ok) return null;
           return { alb, mediaData: await mediaRes.json() };
         })
@@ -70,7 +78,7 @@ export default function HomePage() {
             albumTitle: alb.title,
             folderName: alb.title,
             subfolderPath: '',
-            itemCount: alb.mediaCount.total || 0,
+            itemCount: alb.mediaCount?.total || 0,
             megaUrl: alb.megaUrl || '',
             createdAt: alb.createdAt,
           });
@@ -88,11 +96,14 @@ export default function HomePage() {
     loadData();
   }, []);
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const handleCreateAlbum = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTitle || !newMegaUrl) return;
+    if (!newTitle || !newMegaUrl || isSubmitting) return;
 
     try {
+      setIsSubmitting(true);
       const res = await fetch('/api/albums', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -103,17 +114,21 @@ export default function HomePage() {
         }),
       });
 
-      if (res.ok) {
+      const data = await res.json();
+
+      if (res.ok && data.success) {
         setNewTitle('');
         setNewDescription('');
         setNewMegaUrl('');
         setIsAddModalOpen(false);
         loadData();
       } else {
-        alert('Failed to add album');
+        alert(data.error || 'Failed to add album');
       }
     } catch (err) {
-      alert('An error occurred');
+      alert('An error occurred while creating the album');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -311,9 +326,10 @@ export default function HomePage() {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold transition-all shadow-md shadow-blue-600/20"
+                  disabled={isSubmitting}
+                  className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-semibold transition-all shadow-md shadow-blue-600/20"
                 >
-                  Save Album
+                  {isSubmitting ? 'Saving Album...' : 'Save Album'}
                 </button>
               </div>
             </form>
