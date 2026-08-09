@@ -54,12 +54,18 @@ function decryptText(encryptedText: string): string {
   }
 }
 
-// Database Connection Helper
+// Database Connection Helper with auto libsql:// to https:// HTTP conversion
 function getTursoClient(): Client | null {
-  if (process.env.TURSO_DATABASE_URL) {
+  let rawUrl = process.env.TURSO_DATABASE_URL?.trim();
+  if (rawUrl) {
+    // Convert libsql:// to https:// for native HTTP fetch compatibility in Node.js 18+ / Render
+    if (rawUrl.startsWith('libsql://')) {
+      rawUrl = rawUrl.replace('libsql://', 'https://');
+    }
+
     if (!tursoClient) {
       tursoClient = createClient({
-        url: process.env.TURSO_DATABASE_URL.trim(),
+        url: rawUrl,
         authToken: process.env.TURSO_AUTH_TOKEN?.trim(),
       });
     }
