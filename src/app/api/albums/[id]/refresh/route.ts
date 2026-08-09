@@ -21,7 +21,7 @@ export async function POST(
 
   try {
     clearMegaFolderCache(album.id, album.mega_link);
-    const updatedMedia = await fetchMegaFolderMedia(album.id, album.mega_link, true);
+    const updatedMedia = await fetchMegaFolderMedia(album.id, album.mega_link, undefined, true);
 
     return NextResponse.json({ success: true, media: updatedMedia });
   } catch (error) {
