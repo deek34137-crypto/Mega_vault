@@ -49,12 +49,38 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showOverlay, setShowOverlay] = useState(true);
   const overlayTimeout = useRef<NodeJS.Timeout | null>(null);
+  const touchStartX = useRef<number | null>(null);
+  const touchStartY = useRef<number | null>(null);
 
   // Auto hide control overlay after 3 seconds of inactivity
   const handleMouseMove = () => {
     setShowOverlay(true);
     if (overlayTimeout.current) clearTimeout(overlayTimeout.current);
     overlayTimeout.current = setTimeout(() => setShowOverlay(false), 3000);
+  };
+
+  // Touch Swipe Gesture Handlers for Mobile
+  const handleTouchStart = (e: React.TouchEvent) => {
+    handleMouseMove();
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX.current === null || touchStartY.current === null) return;
+    const deltaX = e.changedTouches[0].clientX - touchStartX.current;
+    const deltaY = e.changedTouches[0].clientY - touchStartY.current;
+
+    // Horizontal swipe threshold (>50px) and horizontal dominance
+    if (Math.abs(deltaX) > 50 && Math.abs(deltaX) > Math.abs(deltaY)) {
+      if (deltaX < 0 && onNext) {
+        onNext(); // Swipe Left -> Next
+      } else if (deltaX > 0 && onPrev) {
+        onPrev(); // Swipe Right -> Prev
+      }
+    }
+    touchStartX.current = null;
+    touchStartY.current = null;
   };
 
   const togglePlay = useCallback(() => {
@@ -164,6 +190,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     <div
       ref={containerRef}
       onMouseMove={handleMouseMove}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 backdrop-blur-2xl select-none"
     >
       {/* HTML5 Video Element */}
@@ -204,11 +232,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             onPrev();
           }}
           title="Previous Media"
-          className={`absolute left-4 top-1/2 -translate-y-1/2 p-3.5 rounded-full bg-zinc-900/80 hover:bg-blue-600 text-zinc-300 hover:text-white border border-zinc-700/80 hover:border-blue-500 backdrop-blur-md z-40 transition-all duration-200 shadow-2xl ${
+          className={`absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 p-2.5 sm:p-3.5 rounded-full bg-zinc-900/85 hover:bg-blue-600 text-zinc-200 hover:text-white border border-zinc-700/80 hover:border-blue-500 backdrop-blur-md z-40 transition-all duration-200 shadow-2xl ${
             showOverlay ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'
           }`}
         >
-          <ChevronLeft className="w-6 h-6" />
+          <ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" />
         </button>
       )}
 
@@ -219,11 +247,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             onNext();
           }}
           title="Next Media"
-          className={`absolute right-4 top-1/2 -translate-y-1/2 p-3.5 rounded-full bg-zinc-900/80 hover:bg-blue-600 text-zinc-300 hover:text-white border border-zinc-700/80 hover:border-blue-500 backdrop-blur-md z-40 transition-all duration-200 shadow-2xl ${
+          className={`absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 p-2.5 sm:p-3.5 rounded-full bg-zinc-900/85 hover:bg-blue-600 text-zinc-200 hover:text-white border border-zinc-700/80 hover:border-blue-500 backdrop-blur-md z-40 transition-all duration-200 shadow-2xl ${
             showOverlay ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'
           }`}
         >
-          <ChevronRight className="w-6 h-6" />
+          <ChevronRight className="w-5 h-5 sm:w-6 sm:h-6" />
         </button>
       )}
 

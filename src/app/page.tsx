@@ -217,30 +217,30 @@ export default function HomePage() {
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-5">
             {displayFolders.map((folder) => (
               <Link
                 key={`${folder.albumId}::${folder.subfolderPath || '__root__'}`}
                 href={`/albums/${folder.albumId}${folder.subfolderPath ? `?folder=${encodeURIComponent(folder.subfolderPath)}` : ''}`}
                 className="group"
               >
-                <div className="glass-panel glass-panel-hover p-6 rounded-3xl border border-zinc-800/80 bg-zinc-950/60 flex items-start justify-between gap-4 transition-all duration-300 hover:border-blue-500/40">
-                  <div className="flex items-start space-x-4">
-                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-600/20 to-indigo-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400 flex-shrink-0 group-hover:scale-105 transition-transform">
-                      <Folder className="w-6 h-6 fill-blue-400/20" />
+                <div className="glass-panel glass-panel-hover p-4 sm:p-6 rounded-2xl sm:rounded-3xl border border-zinc-800/80 bg-zinc-950/60 flex items-start justify-between gap-3 sm:gap-4 transition-all duration-300 hover:border-blue-500/40">
+                  <div className="flex items-start space-x-3 sm:space-x-4">
+                    <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-gradient-to-br from-blue-600/20 to-indigo-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400 flex-shrink-0 group-hover:scale-105 transition-transform">
+                      <Folder className="w-5 h-5 sm:w-6 sm:h-6 fill-blue-400/20" />
                     </div>
                     <div>
-                      <h3 className="text-base font-bold text-white group-hover:text-blue-400 transition-colors line-clamp-1">
+                      <h3 className="text-sm sm:text-base font-bold text-white group-hover:text-blue-400 transition-colors line-clamp-1">
                         {folder.folderName}
                       </h3>
-                      <p className="text-xs text-zinc-400 mt-1 flex items-center gap-2 font-medium">
+                      <p className="text-[11px] sm:text-xs text-zinc-400 mt-1 flex items-center gap-1.5 sm:gap-2 font-medium">
                         <span>
                           {folder.itemCount === 0 && (folder.subfolderCount || 0) > 0
                             ? `${folder.subfolderCount} ${folder.subfolderCount === 1 ? 'Subfolder' : 'Subfolders'}`
                             : `${folder.itemCount} media items`}
                         </span>
                         {folder.albumTitle !== folder.folderName && (
-                          <span className="text-[10px] px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-zinc-400">
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 truncate max-w-[120px]">
                             {folder.albumTitle}
                           </span>
                         )}
@@ -248,7 +248,7 @@ export default function HomePage() {
                     </div>
                   </div>
 
-                  <div className="p-2 rounded-full bg-zinc-900 border border-zinc-800 text-zinc-400 group-hover:text-blue-400 group-hover:translate-x-1 transition-all">
+                  <div className="p-1.5 sm:p-2 rounded-full bg-zinc-900 border border-zinc-800 text-zinc-400 group-hover:text-blue-400 group-hover:translate-x-1 transition-all flex-shrink-0">
                     <ChevronRight className="w-4 h-4" />
                   </div>
                 </div>

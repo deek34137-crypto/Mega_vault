@@ -53,6 +53,8 @@ function AlbumContent() {
   const [mediaTypeFilter, setMediaTypeFilter] = useState<FilterMediaType>('all');
 
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const touchStartX = useRef<number | null>(null);
+  const touchStartY = useRef<number | null>(null);
 
   const loadMedia = useCallback(async () => {
     if (!albumId) return;
@@ -221,8 +223,8 @@ function AlbumContent() {
       </div>
 
       {/* Album Header Banner */}
-      <div className="relative rounded-3xl glass-panel p-8 mb-8 overflow-hidden border border-zinc-800/80">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 relative z-10">
+      <div className="relative rounded-2xl sm:rounded-3xl glass-panel p-5 sm:p-8 mb-6 sm:mb-8 overflow-hidden border border-zinc-800/80">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 sm:gap-6 relative z-10">
           <div>
             <div className="flex items-center space-x-2 mb-1.5">
               <span className="px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[11px] font-semibold uppercase">
@@ -230,19 +232,19 @@ function AlbumContent() {
               </span>
               {album && <span className="text-xs text-zinc-400">{formatDate(album.createdAt)}</span>}
             </div>
-            <h1 className="text-2xl sm:text-4xl font-extrabold text-white mb-1">
+            <h1 className="text-xl sm:text-4xl font-extrabold text-white mb-1 tracking-tight">
               {folderParam || album?.title || 'Album Details'}
             </h1>
             {album?.description && !folderParam && (
-              <p className="text-sm text-zinc-400 max-w-xl">{album.description}</p>
+              <p className="text-xs sm:text-sm text-zinc-400 max-w-xl">{album.description}</p>
             )}
           </div>
 
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-3 w-full sm:w-auto">
             <button
               onClick={handleRefresh}
               disabled={isRefreshing}
-              className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-2 transition-all shadow-md shadow-blue-600/20"
+              className="w-full sm:w-auto justify-center px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-2 transition-all shadow-md shadow-blue-600/20"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
               <span>{isRefreshing ? 'Re-reading MEGA...' : 'Refresh Album'}</span>
@@ -263,22 +265,22 @@ function AlbumContent() {
       {subfolders.length > 0 && (
         <div className="mb-8">
           <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-3">Subfolders</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
             {subfolders.map((sub) => (
               <Link key={sub.path} href={`/albums/${albumId}?folder=${encodeURIComponent(sub.path)}`}>
-                <div className="glass-panel glass-panel-hover p-4 rounded-2xl border border-zinc-800/80 flex items-center justify-between group">
+                <div className="glass-panel glass-panel-hover p-3.5 sm:p-4 rounded-2xl border border-zinc-800/80 flex items-center justify-between group">
                   <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+                    <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 flex-shrink-0">
                       <Folder className="w-5 h-5 fill-blue-400/20" />
                     </div>
                     <div>
-                      <h4 className="text-sm font-bold text-white group-hover:text-blue-400 transition-colors">
+                      <h4 className="text-xs sm:text-sm font-bold text-white group-hover:text-blue-400 transition-colors line-clamp-1">
                         {sub.name}
                       </h4>
-                      <span className="text-xs text-zinc-400">{sub.itemCount} items</span>
+                      <span className="text-[11px] sm:text-xs text-zinc-400">{sub.itemCount} items</span>
                     </div>
                   </div>
-                  <ChevronRight className="w-4 h-4 text-zinc-500 group-hover:text-blue-400 group-hover:translate-x-1 transition-all" />
+                  <ChevronRight className="w-4 h-4 text-zinc-500 group-hover:text-blue-400 group-hover:translate-x-1 transition-all flex-shrink-0" />
                 </div>
               </Link>
             ))}
@@ -287,11 +289,11 @@ function AlbumContent() {
       )}
 
       {/* Filter Controls */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 mb-6">
-        <div className="flex items-center space-x-2 bg-zinc-900/90 p-1 rounded-xl border border-zinc-800">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 sm:gap-4 mb-6">
+        <div className="flex items-center space-x-1 sm:space-x-2 bg-zinc-900/90 p-1 rounded-xl border border-zinc-800 overflow-x-auto">
           <button
             onClick={() => setMediaTypeFilter('all')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+            className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-[11px] sm:text-xs font-semibold whitespace-nowrap transition-all ${
               mediaTypeFilter === 'all'
                 ? 'bg-blue-600 text-white shadow-sm'
                 : 'text-zinc-400 hover:text-white'
@@ -301,7 +303,7 @@ function AlbumContent() {
           </button>
           <button
             onClick={() => setMediaTypeFilter('images')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
+            className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-[11px] sm:text-xs font-semibold whitespace-nowrap flex items-center gap-1.5 transition-all ${
               mediaTypeFilter === 'images'
                 ? 'bg-blue-600 text-white shadow-sm'
                 : 'text-zinc-400 hover:text-white'
@@ -312,7 +314,7 @@ function AlbumContent() {
           </button>
           <button
             onClick={() => setMediaTypeFilter('videos')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
+            className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-[11px] sm:text-xs font-semibold whitespace-nowrap flex items-center gap-1.5 transition-all ${
               mediaTypeFilter === 'videos'
                 ? 'bg-blue-600 text-white shadow-sm'
                 : 'text-zinc-400 hover:text-white'
@@ -330,26 +332,26 @@ function AlbumContent() {
             placeholder="Search media files..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-9 pr-4 py-1.5 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-9 pr-4 py-2 sm:py-1.5 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-blue-500"
           />
         </div>
       </div>
 
       {/* Media Grid (Paginated via Infinite Scroll) */}
       {isLoading ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5 sm:gap-4">
           {[1, 2, 3, 4, 5, 6].map((i) => (
             <div key={i} className="aspect-square rounded-2xl bg-zinc-900/60 animate-pulse border border-zinc-800" />
           ))}
         </div>
       ) : filteredMedia.length === 0 && subfolders.length === 0 ? (
-        <div className="glass-panel p-12 rounded-3xl text-center border border-zinc-800 my-8">
+        <div className="glass-panel p-8 sm:p-12 rounded-3xl text-center border border-zinc-800 my-8">
           <p className="text-sm text-zinc-400 mb-2">No media items found in this folder.</p>
           <p className="text-xs text-zinc-500">Click "Refresh Album" to fetch folder contents from MEGA.</p>
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5 sm:gap-4">
             {visibleMedia.map((media) => {
               // Find the true index in filteredMedia (not the paginated slice index)
               const filteredIdx = filteredMedia.findIndex((m) => m.id === media.id);
@@ -387,26 +389,43 @@ function AlbumContent() {
 
       {/* Image Lightbox Viewer Modal */}
       {selectedMedia && selectedMedia.mediaType === 'IMAGE' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/95 backdrop-blur-2xl">
+        <div
+          onTouchStart={(e) => {
+            touchStartX.current = e.touches[0].clientX;
+            touchStartY.current = e.touches[0].clientY;
+          }}
+          onTouchEnd={(e) => {
+            if (touchStartX.current === null || touchStartY.current === null) return;
+            const deltaX = e.changedTouches[0].clientX - touchStartX.current;
+            const deltaY = e.changedTouches[0].clientY - touchStartY.current;
+            if (Math.abs(deltaX) > 50 && Math.abs(deltaX) > Math.abs(deltaY)) {
+              if (deltaX < 0) handleNext();
+              else if (deltaX > 0) handlePrev();
+            }
+            touchStartX.current = null;
+            touchStartY.current = null;
+          }}
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/95 backdrop-blur-2xl select-none"
+        >
           <button
             onClick={() => setSelectedIndex(null)}
-            className="absolute top-4 right-4 p-3 rounded-full bg-zinc-900/80 text-zinc-400 hover:text-white border border-zinc-700 z-20"
+            className="absolute top-3 right-3 sm:top-4 sm:right-4 p-2.5 sm:p-3 rounded-full bg-zinc-900/80 text-zinc-400 hover:text-white border border-zinc-700 z-20"
           >
-            <X className="w-6 h-6" />
+            <X className="w-5 h-5 sm:w-6 sm:h-6" />
           </button>
 
           <button
             onClick={handlePrev}
-            className="absolute left-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-zinc-900/80 text-zinc-300 hover:text-white border border-zinc-700/80 hover:bg-zinc-800 z-20 transition-all"
+            className="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 p-2.5 sm:p-3 rounded-full bg-zinc-900/80 text-zinc-300 hover:text-white border border-zinc-700/80 hover:bg-zinc-800 z-20 transition-all shadow-xl"
           >
-            <ChevronLeft className="w-6 h-6" />
+            <ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" />
           </button>
 
           <button
             onClick={handleNext}
-            className="absolute right-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-zinc-900/80 text-zinc-300 hover:text-white border border-zinc-700/80 hover:bg-zinc-800 z-20 transition-all"
+            className="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 p-2.5 sm:p-3 rounded-full bg-zinc-900/80 text-zinc-300 hover:text-white border border-zinc-700/80 hover:bg-zinc-800 z-20 transition-all shadow-xl"
           >
-            <ChevronRight className="w-6 h-6" />
+            <ChevronRight className="w-5 h-5 sm:w-6 sm:h-6" />
           </button>
 
           <div className="max-w-5xl w-full flex flex-col items-center z-10">
