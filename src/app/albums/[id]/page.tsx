@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
 import { PageContainer } from '@/components/layout/PageContainer';
@@ -19,6 +19,7 @@ import {
   ChevronRight,
   Folder,
   AlertTriangle,
+  Loader2,
 } from 'lucide-react';
 import { formatBytes, formatDate } from '@/lib/utils/cn';
 
@@ -27,6 +28,8 @@ interface SubfolderItem {
   path: string;
   itemCount: number;
 }
+
+const ITEMS_PER_PAGE = 24;
 
 function AlbumContent() {
   const params = useParams();
@@ -39,6 +42,8 @@ function AlbumContent() {
   const [album, setAlbum] = useState<Album | null>(null);
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
   const [subfolders, setSubfolders] = useState<SubfolderItem[]>([]);
+  const [visibleCount, setVisibleCount] = useState(ITEMS_PER_PAGE);
+
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -47,12 +52,15 @@ function AlbumContent() {
   const [searchQuery, setSearchQuery] = useState('');
   const [mediaTypeFilter, setMediaTypeFilter] = useState<FilterMediaType>('all');
 
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
   const loadMedia = useCallback(async () => {
     if (!albumId) return;
 
     try {
       setIsLoading(true);
       setErrorMessage(null);
+      setVisibleCount(ITEMS_PER_PAGE);
 
       const url = `/api/albums/${encodeURIComponent(albumId)}/media${folderParam ? `?folder=${encodeURIComponent(folderParam)}` : ''}`;
       const res = await fetch(url);
@@ -75,6 +83,24 @@ function AlbumContent() {
   useEffect(() => {
     loadMedia();
   }, [loadMedia]);
+
+  // Infinite Scroll Observer: Load +24 cards as user scrolls to sentinel
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setVisibleCount((prev) => Math.min(prev + ITEMS_PER_PAGE, mediaItems.length));
+        }
+      },
+      { rootMargin: '300px' }
+    );
+
+    if (sentinelRef.current) {
+      observer.observe(sentinelRef.current);
+    }
+
+    return () => observer.disconnect();
+  }, [mediaItems.length]);
 
   const handleRefresh = async () => {
     if (!albumId) return;
@@ -102,6 +128,8 @@ function AlbumContent() {
         : m.mediaType === 'VIDEO';
     return matchesSearch && matchesType;
   });
+
+  const visibleMedia = filteredMedia.slice(0, visibleCount);
 
   const photoCount = mediaItems.filter((m) => m.mediaType === 'IMAGE').length;
   const videoCount = mediaItems.filter((m) => m.mediaType === 'VIDEO').length;
@@ -266,7 +294,7 @@ function AlbumContent() {
         </div>
       </div>
 
-      {/* Media Grid */}
+      {/* Media Grid (Paginated via Infinite Scroll) */}
       {isLoading ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
           {[1, 2, 3, 4, 5, 6].map((i) => (
@@ -279,11 +307,21 @@ function AlbumContent() {
           <p className="text-xs text-zinc-500">Click "Refresh Album" to fetch folder contents from MEGA.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-          {filteredMedia.map((media, idx) => (
-            <MediaCard key={media.id} media={media} onClick={() => setSelectedIndex(idx)} />
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+            {visibleMedia.map((media, idx) => (
+              <MediaCard key={media.id} media={media} onClick={() => setSelectedIndex(idx)} />
+            ))}
+          </div>
+
+          {/* Infinite Scroll Sentinel */}
+          {visibleCount < filteredMedia.length && (
+            <div ref={sentinelRef} className="py-8 text-center flex items-center justify-center space-x-2 text-zinc-400 text-xs">
+              <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
+              <span>Loading more media on scroll... ({visibleCount} of {filteredMedia.length})</span>
+            </div>
+          )}
+        </>
       )}
 
       {/* Custom Video Player Modal */}

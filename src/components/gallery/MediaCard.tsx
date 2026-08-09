@@ -1,17 +1,16 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Play, Film, Image as ImageIcon } from 'lucide-react';
 import { MediaItem } from '@/types';
-import { formatBytes, formatDuration } from '@/lib/utils/cn';
+import { formatBytes } from '@/lib/utils/cn';
 
 interface MediaCardProps {
   media: MediaItem;
   onClick?: (media: MediaItem) => void;
 }
 
-// Consistent colorful gradient fallback for cards when video/image preview is loading
 function getGradientFromFileName(name: string): string {
   const gradients = [
     'from-blue-900/80 via-indigo-950/90 to-zinc-950',
@@ -30,6 +29,8 @@ function getGradientFromFileName(name: string): string {
 }
 
 export const MediaCard: React.FC<MediaCardProps> = ({ media, onClick }) => {
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [isVisible, setIsVisible] = useState(false);
   const [videoFrameLoaded, setVideoFrameLoaded] = useState(false);
   const [videoError, setVideoError] = useState(false);
 
@@ -37,8 +38,28 @@ export const MediaCard: React.FC<MediaCardProps> = ({ media, onClick }) => {
   const ext = media.fileName.split('.').pop()?.toUpperCase() || (isVideo ? 'VIDEO' : 'IMG');
   const gradient = getGradientFromFileName(media.fileName);
 
+  // Lazy load video snapshot ONLY when card enters browser viewport
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '200px' } // Load 200px before scrolling into view
+    );
+
+    if (cardRef.current) {
+      observer.observe(cardRef.current);
+    }
+
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <motion.div
+      ref={cardRef}
       whileHover={{ y: -3, scale: 1.02 }}
       transition={{ duration: 0.2 }}
       onClick={() => onClick && onClick(media)}
@@ -54,8 +75,8 @@ export const MediaCard: React.FC<MediaCardProps> = ({ media, onClick }) => {
             decoding="async"
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out"
           />
-        ) : isVideo && media.streamUrl && !videoError ? (
-          /* HTML5 Video First Frame Snapshot (#t=1.0) */
+        ) : isVideo && isVisible && media.streamUrl && !videoError ? (
+          /* Lazy HTML5 Video First Frame Snapshot (#t=1.0) when scrolled into view */
           <div className="relative w-full h-full bg-zinc-950 overflow-hidden">
             <video
               src={`${media.streamUrl}#t=1.0`}
@@ -69,7 +90,6 @@ export const MediaCard: React.FC<MediaCardProps> = ({ media, onClick }) => {
               }`}
             />
 
-            {/* Gradient Poster Placeholder while video frame loads */}
             {!videoFrameLoaded && (
               <div className={`absolute inset-0 bg-gradient-to-br ${gradient} p-3.5 flex flex-col justify-between`}>
                 <div className="flex items-center justify-between z-10">
@@ -84,14 +104,12 @@ export const MediaCard: React.FC<MediaCardProps> = ({ media, onClick }) => {
               </div>
             )}
 
-            {/* Video Play Overlay */}
             <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/10 transition-colors">
               <div className="w-12 h-12 rounded-full bg-blue-600/90 text-white flex items-center justify-center backdrop-blur-md group-hover:scale-110 group-hover:bg-blue-500 transition-all shadow-xl shadow-blue-600/40 border border-white/20">
                 <Play className="w-5 h-5 fill-white translate-x-0.5" />
               </div>
             </div>
 
-            {/* Filename Label */}
             <div className="absolute bottom-2 left-2 right-2 z-10 bg-black/75 backdrop-blur-md p-2 rounded-xl border border-white/10">
               <p className="text-xs font-semibold text-white font-mono truncate leading-snug" title={media.fileName}>
                 {media.fileName}
@@ -128,7 +146,6 @@ export const MediaCard: React.FC<MediaCardProps> = ({ media, onClick }) => {
         )}
       </div>
 
-      {/* Bottom Info Bar for Thumbnailed Items */}
       {media.thumbnailUrl && (
         <div className="p-2.5 bg-zinc-950/90 border-t border-zinc-800/80 flex items-center justify-between text-xs">
           <span className="truncate text-zinc-200 font-mono text-[11px]" title={media.fileName}>

@@ -54,7 +54,7 @@ export async function fetchMegaFolderMedia(
     if (cached) return cached;
   }
 
-  // Handle mock/sample URLs gracefully for testing
+  // Handle mock/sample URLs gracefully for immediate UI testing
   if (megaUrl.includes('example') || !megaUrl.startsWith('http')) {
     const mockItems = MOCK_MEDIA.filter((m) => m.albumId === albumId);
     const result: MegaFolderResult = {
@@ -77,20 +77,17 @@ export async function fetchMegaFolderMedia(
 
     let targetNode: any = rootFolder;
 
-    // Navigate subfolder path safely with loadAttributes on each level
+    // Fast Lazy Navigation: Navigate down the path level-by-level on demand
     if (subfolderPath) {
       const pathParts = subfolderPath.split('/').map((p) => p.trim()).filter(Boolean);
       
       for (const part of pathParts) {
         if (!targetNode) break;
 
-        // Ensure current node children are loaded
         if (targetNode.directory && (!targetNode.children || targetNode.children.length === 0)) {
           try {
             await targetNode.loadAttributes();
-          } catch (e) {
-            console.warn('Load attributes warning for node:', targetNode.name, e);
-          }
+          } catch (e) {}
         }
 
         if (targetNode.children && Array.isArray(targetNode.children)) {
@@ -100,17 +97,12 @@ export async function fetchMegaFolderMedia(
 
           if (match) {
             targetNode = match;
-            if (!targetNode.children || targetNode.children.length === 0) {
-              try {
-                await targetNode.loadAttributes();
-              } catch (e) {}
-            }
           }
         }
       }
     }
 
-    // Ensure final target node attributes are fully loaded
+    // Load attributes ONLY for the target active folder layer (no deep preloading)
     if (targetNode.directory && (!targetNode.children || targetNode.children.length === 0)) {
       try {
         await targetNode.loadAttributes();
@@ -125,16 +117,11 @@ export async function fetchMegaFolderMedia(
     if (targetNode.children && Array.isArray(targetNode.children)) {
       for (const child of targetNode.children) {
         if (child.directory) {
-          let childCount = 0;
-          try {
-            if (!child.children || child.children.length === 0) {
-              await child.loadAttributes();
-            }
-            childCount = child.children ? child.children.length : 0;
-          } catch (e) {}
-
           const childName = child.name || 'Subfolder';
           const fullSubPath = subfolderPath ? `${subfolderPath}/${childName}` : childName;
+
+          // Quick count without full deep scan
+          const childCount = child.children ? child.children.length : 0;
 
           detectedSubfolders.push({
             name: childName,
