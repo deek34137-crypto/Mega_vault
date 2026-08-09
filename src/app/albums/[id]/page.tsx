@@ -69,6 +69,10 @@ function AlbumContent() {
         setAlbum(data.album);
         setMediaItems(data.items || []);
         setSubfolders(data.subfolders || []);
+
+        if (data.timedOut) {
+          setErrorMessage('MEGA folder connection timed out. Click "Refresh Album" to retry.');
+        }
       } else {
         setErrorMessage('Failed to load media for this album.');
       }
@@ -84,7 +88,7 @@ function AlbumContent() {
     loadMedia();
   }, [loadMedia]);
 
-  // Infinite Scroll Observer: Load +24 cards as user scrolls to sentinel
+  // Infinite Scroll Observer
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
@@ -146,7 +150,6 @@ function AlbumContent() {
     setSelectedIndex((prev) => (prev! < filteredMedia.length - 1 ? prev! + 1 : 0));
   }, [selectedIndex, filteredMedia.length]);
 
-  // Keyboard navigation for image lightbox
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (selectedIndex === null || selectedMedia?.mediaType === 'VIDEO') return;

@@ -3,6 +3,9 @@ import { getAlbumById } from '@/lib/db';
 import { fetchMegaFolderMedia } from '@/lib/mega';
 import { isAuthenticated } from '@/lib/auth';
 
+export const dynamic = 'force-dynamic';
+export const maxDuration = 60; // Allow up to 60s for Vercel serverless execution
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -34,7 +37,25 @@ export async function GET(
       });
     }
 
-    const result = await fetchMegaFolderMedia(album.id, album.mega_link, subfolderPath);
+    // Protect against Vercel serverless function timeouts using Promise.race (8s timeout guard)
+    const timeoutPromise = new Promise((resolve) =>
+      setTimeout(
+        () =>
+          resolve({
+            albumId: album.id,
+            items: [],
+            subfolders: [],
+            mediaCount: { total: 0, images: 0, videos: 0 },
+            timedOut: true,
+          }),
+        8000
+      )
+    );
+
+    const fetchPromise = fetchMegaFolderMedia(album.id, album.mega_link, subfolderPath);
+
+    const result: any = await Promise.race([fetchPromise, timeoutPromise]);
+
     return NextResponse.json({ album, ...result });
   } catch (error) {
     console.error('Error fetching album media:', error);
