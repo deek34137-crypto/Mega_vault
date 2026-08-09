@@ -403,20 +403,20 @@ function AlbumContent() {
             <ChevronRight className="w-6 h-6" />
           </button>
 
-          <div className="max-w-4xl w-full flex flex-col items-center z-10">
-            <div className="relative max-h-[75vh] rounded-2xl overflow-hidden mb-4 border border-zinc-800 bg-black flex items-center justify-center shadow-2xl">
+          <div className="max-w-5xl w-full flex flex-col items-center z-10">
+            <div className="relative w-full h-[75vh] max-h-[80vh] rounded-2xl overflow-hidden mb-4 border border-zinc-800 bg-black flex items-center justify-center shadow-2xl">
               {selectedMedia.thumbnailUrl ? (
                 <img
                   src={selectedMedia.thumbnailUrl}
                   alt={selectedMedia.fileName}
-                  className="max-h-[75vh] object-contain select-none"
+                  className="w-full h-full object-contain p-2 select-none"
                 />
               ) : selectedMedia.streamUrl ? (
                 // Load real image via the stream API endpoint
                 <img
                   src={selectedMedia.streamUrl}
                   alt={selectedMedia.fileName}
-                  className="max-h-[75vh] object-contain select-none"
+                  className="w-full h-full object-contain p-2 select-none"
                   onError={(e) => {
                     (e.target as HTMLImageElement).style.display = 'none';
                   }}
