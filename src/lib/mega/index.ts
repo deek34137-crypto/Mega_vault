@@ -60,15 +60,48 @@ function normalizeName(str: string): string {
 const failedFetchCooldowns = new Map<string, number>();
 const ERROR_COOLDOWN_MS = 15 * 1000; // 15 second retry cooldown after failure
 
+// Helper to extract all valid string lookup keys for a MegaFile node
+function getNodeHandleKeys(node: any): string[] {
+  const keys: string[] = [];
+  if (!node) return keys;
+
+  // Direct node handle string (e.g. 'ty4BBRqR')
+  if (node.h && typeof node.h === 'string') {
+    keys.push(node.h);
+  }
+
+  // Handle downloadId attribute (can be string or array [h, key])
+  if (node.downloadId) {
+    if (Array.isArray(node.downloadId)) {
+      keys.push(node.downloadId.join(','));
+      if (node.downloadId[0] && typeof node.downloadId[0] === 'string') {
+        keys.push(node.downloadId[0]);
+      }
+    } else if (typeof node.downloadId === 'string') {
+      keys.push(node.downloadId);
+      if (node.downloadId.includes(',')) {
+        keys.push(node.downloadId.split(',')[0]);
+      }
+    }
+  }
+
+  // Direct filename string (e.g. 'video.mp4')
+  if (node.name && typeof node.name === 'string') {
+    keys.push(node.name);
+  }
+
+  return keys;
+}
+
 // Build a flat lookup map of file handles to nodes for instant stream retrieval
 function buildHandleMap(node: any, map = new Map<string, any>()): Map<string, any> {
   if (!node) return map;
 
-  if (node.downloadId) {
-    map.set(node.downloadId, node);
-  } else if (node.name && !map.has(node.name)) {
-    // Only map name if downloadId is absent and name isn't already taken (prevents collisions)
-    map.set(node.name, node);
+  const handleKeys = getNodeHandleKeys(node);
+  for (const k of handleKeys) {
+    if (k && !map.has(k)) {
+      map.set(k, node);
+    }
   }
 
   if (node.children && Array.isArray(node.children)) {
@@ -141,9 +174,24 @@ async function getOrFetchRootFolder(megaUrl: string, forceRefresh = false): Prom
 export async function getMegaFileByHandle(albumId: string, megaUrl: string, handle: string): Promise<any | null> {
   try {
     const cachedRoot = await getOrFetchRootFolder(megaUrl);
-    if (cachedRoot && cachedRoot.handleMap.has(handle)) {
-      return cachedRoot.handleMap.get(handle);
+    if (!cachedRoot || !cachedRoot.handleMap) return null;
+
+    const map = cachedRoot.handleMap;
+    if (map.has(handle)) return map.get(handle);
+
+    const decoded = decodeURIComponent(handle);
+    if (map.has(decoded)) return map.get(decoded);
+
+    // Fallback for comma-separated handle keys (e.g. handle,key -> try handle part)
+    if (handle.includes(',')) {
+      const part = handle.split(',')[0];
+      if (map.has(part)) return map.get(part);
     }
+    if (decoded.includes(',')) {
+      const part = decoded.split(',')[0];
+      if (map.has(part)) return map.get(part);
+    }
+
     return null;
   } catch (err) {
     console.error('Error looking up Mega file by handle:', err);
@@ -254,17 +302,23 @@ export async function fetchMegaFolderMedia(
           }
 
           if (mediaType) {
+            const rawHandle =
+              (Array.isArray(child.downloadId) ? child.downloadId.join(',') : child.downloadId?.toString()) ||
+              child.h ||
+              child.name ||
+              '';
+
             items.push({
-              id: `med-${child.downloadId || Math.random().toString(36).substring(7)}`,
+              id: `med-${rawHandle || Math.random().toString(36).substring(7)}`,
               albumId,
-              fileHandle: child.downloadId || child.name || '',
+              fileHandle: rawHandle,
               fileName: rawName,
               mimeType: mediaType === 'IMAGE' ? `image/${ext}` : `video/${ext}`,
               mediaType,
               size: child.size || 0,
               createdAt: child.timestamp ? new Date(child.timestamp * 1000).toISOString() : new Date().toISOString(),
               thumbnailUrl: (child as any).thumbnailUrl || undefined,
-              streamUrl: `/api/mega/stream?albumId=${albumId}&handle=${encodeURIComponent(child.downloadId || child.name || '')}`,
+              streamUrl: `/api/mega/stream?albumId=${albumId}&handle=${encodeURIComponent(rawHandle)}`,
             });
           }
         }
