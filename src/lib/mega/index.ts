@@ -41,6 +41,11 @@ export function parseMegaUrl(url: string): { folderId: string; key: string } | n
   }
 }
 
+// Clean string for robust fuzzy matching between folder names
+function normalizeName(str: string): string {
+  return str ? str.trim().toLowerCase().replace(/[^a-z0-9]/g, '') : '';
+}
+
 export async function fetchMegaFolderMedia(
   albumId: string,
   megaUrl: string,
@@ -55,7 +60,7 @@ export async function fetchMegaFolderMedia(
   }
 
   // Handle mock/sample URLs gracefully for immediate UI testing
-  if (megaUrl.includes('example') || !megaUrl.startsWith('http')) {
+  if (!megaUrl || megaUrl.includes('example') || !megaUrl.startsWith('http')) {
     const mockItems = MOCK_MEDIA.filter((m) => m.albumId === albumId);
     const result: MegaFolderResult = {
       albumId,
@@ -77,10 +82,10 @@ export async function fetchMegaFolderMedia(
 
     let targetNode: any = rootFolder;
 
-    // Fast Lazy Navigation: Navigate down the path level-by-level on demand
+    // Robust Flexible Subfolder Navigation
     if (subfolderPath) {
       const pathParts = subfolderPath.split('/').map((p) => p.trim()).filter(Boolean);
-      
+
       for (const part of pathParts) {
         if (!targetNode) break;
 
@@ -91,9 +96,12 @@ export async function fetchMegaFolderMedia(
         }
 
         if (targetNode.children && Array.isArray(targetNode.children)) {
-          const match = targetNode.children.find(
-            (c: any) => c.directory && (c.name?.trim() === part || c.name?.trim().toLowerCase() === part.toLowerCase())
-          );
+          const targetNorm = normalizeName(part);
+          const match = targetNode.children.find((c: any) => {
+            if (!c.directory) return false;
+            const cNorm = normalizeName(c.name || '');
+            return cNorm === targetNorm || c.name?.trim() === part;
+          });
 
           if (match) {
             targetNode = match;
@@ -102,8 +110,8 @@ export async function fetchMegaFolderMedia(
       }
     }
 
-    // Load attributes ONLY for the target active folder layer (no deep preloading)
-    if (targetNode.directory && (!targetNode.children || targetNode.children.length === 0)) {
+    // Ensure final target folder node attributes are loaded
+    if (targetNode && targetNode.directory && (!targetNode.children || targetNode.children.length === 0)) {
       try {
         await targetNode.loadAttributes();
       } catch (e) {}
@@ -114,13 +122,11 @@ export async function fetchMegaFolderMedia(
     let imageCount = 0;
     let videoCount = 0;
 
-    if (targetNode.children && Array.isArray(targetNode.children)) {
+    if (targetNode && targetNode.children && Array.isArray(targetNode.children)) {
       for (const child of targetNode.children) {
         if (child.directory) {
           const childName = child.name || 'Subfolder';
           const fullSubPath = subfolderPath ? `${subfolderPath}/${childName}` : childName;
-
-          // Quick count without full deep scan
           const childCount = child.children ? child.children.length : 0;
 
           detectedSubfolders.push({

@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
-import { getAlbumById } from '@/lib/db';
+import { getAlbumById, getAllAlbums } from '@/lib/db';
 import { fetchMegaFolderMedia } from '@/lib/mega';
 import { isAuthenticated } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60; // Allow up to 60s for Vercel serverless execution
+export const maxDuration = 60; // Up to 60s execution limit on Vercel serverless
 
 export async function GET(
   request: Request,
@@ -20,16 +20,24 @@ export async function GET(
     const { searchParams } = new URL(request.url);
     const subfolderPath = searchParams.get('folder') || undefined;
 
-    const album = await getAlbumById(id);
+    let album = await getAlbumById(id);
 
+    // Fallback: If album is not found by exact ID, search across all DB albums
     if (!album) {
+      const allAlbums = await getAllAlbums();
+      if (allAlbums.length > 0) {
+        album = allAlbums[0]; // Fallback to active album
+      }
+    }
+
+    if (!album || !album.mega_link) {
       return NextResponse.json({
         album: {
-          id,
-          title: 'Album',
+          id: id || 'demo',
+          title: 'Media Album',
           description: '',
           mega_link: '',
-          created_at: new Date().toISOString(),
+          createdAt: new Date().toISOString(),
         },
         items: [],
         subfolders: [],
@@ -37,7 +45,7 @@ export async function GET(
       });
     }
 
-    // Protect against Vercel serverless function timeouts using Promise.race (8s timeout guard)
+    // Protect against execution hangs with a 10s timeout race
     const timeoutPromise = new Promise((resolve) =>
       setTimeout(
         () =>
@@ -48,12 +56,11 @@ export async function GET(
             mediaCount: { total: 0, images: 0, videos: 0 },
             timedOut: true,
           }),
-        8000
+        10000
       )
     );
 
     const fetchPromise = fetchMegaFolderMedia(album.id, album.mega_link, subfolderPath);
-
     const result: any = await Promise.race([fetchPromise, timeoutPromise]);
 
     return NextResponse.json({ album, ...result });
