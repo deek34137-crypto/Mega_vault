@@ -27,6 +27,11 @@ export default function HomePage() {
   const [newDescription, setNewDescription] = useState('');
   const [newMegaUrl, setNewMegaUrl] = useState('');
 
+  // Local Storage Restoration States
+  const [hasLocalBackup, setHasLocalBackup] = useState(false);
+  const [localBackupCount, setLocalBackupCount] = useState(0);
+  const [isRestoringLocal, setIsRestoringLocal] = useState(false);
+
   const loadData = useCallback(async () => {
     try {
       setIsLoading(true);
@@ -40,6 +45,29 @@ export default function HomePage() {
       const data = await res.json();
       const loadedAlbums: Album[] = data.albums || [];
       setAlbums(loadedAlbums);
+
+      // Check if browser LocalStorage has saved links
+      let savedLocalItems: any[] = [];
+      try {
+        const stored = localStorage.getItem('megavault_saved_links');
+        if (stored) savedLocalItems = JSON.parse(stored);
+      } catch (e) {}
+
+      if (loadedAlbums.length > 0) {
+        // Automatically sync loaded albums to browser LocalStorage cache
+        const cacheItems = loadedAlbums.map((a) => ({
+          id: a.id,
+          title: a.title,
+          megaUrl: a.megaUrl,
+          description: a.description,
+        }));
+        localStorage.setItem('megavault_saved_links', JSON.stringify(cacheItems));
+        setHasLocalBackup(false);
+      } else if (savedLocalItems.length > 0) {
+        // Server returned 0 folders (Render restart), but browser has saved links!
+        setHasLocalBackup(true);
+        setLocalBackupCount(savedLocalItems.length);
+      }
 
       // Fetch subfolder trees for all albums in PARALLEL (not sequentially)
       const results = await Promise.allSettled(
@@ -112,6 +140,33 @@ export default function HomePage() {
   }, [loadData]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleRestoreFromLocalCache = async () => {
+    try {
+      setIsRestoringLocal(true);
+      const stored = localStorage.getItem('megavault_saved_links');
+      if (!stored) return;
+
+      const savedLocalItems = JSON.parse(stored);
+      const res = await fetch('/api/albums/backup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(savedLocalItems),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setHasLocalBackup(false);
+        await loadData();
+      } else {
+        alert(data.error || 'Failed to restore folders');
+      }
+    } catch (err) {
+      alert('Error restoring folders from browser database');
+    } finally {
+      setIsRestoringLocal(false);
+    }
+  };
 
   const handleCreateAlbum = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -214,7 +269,35 @@ export default function HomePage() {
 
   return (
     <PageContainer>
+      {/* Restorable Local Backup Banner */}
+      {hasLocalBackup && (
+        <div className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-blue-600/20 via-purple-600/20 to-emerald-600/20 border border-blue-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
+          <div className="flex items-center space-x-3">
+            <div className="p-2 rounded-xl bg-blue-500/20 text-blue-300">
+              <Sparkles className="w-5 h-5 animate-pulse" />
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-white">
+                {localBackupCount} Saved {localBackupCount === 1 ? 'Folder' : 'Folders'} Found in Browser Database!
+              </h4>
+              <p className="text-xs text-zinc-300">
+                Server storage was reset (Render restart). Click below to show and restore all your saved folders.
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={handleRestoreFromLocalCache}
+            disabled={isRestoringLocal}
+            className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-extrabold flex items-center gap-1.5 transition-all shadow-md flex-shrink-0"
+          >
+            <span>{isRestoringLocal ? 'Restoring Folders...' : 'Show / Restore Folders Now'}</span>
+          </button>
+        </div>
+      )}
+
       {/* Page Header */}
+
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 sm:mb-8">
         <div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight flex items-center gap-2">
@@ -271,16 +354,31 @@ export default function HomePage() {
             <div className="w-14 h-14 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 mx-auto mb-4">
               <Folder className="w-7 h-7" />
             </div>
-            <h3 className="text-lg font-bold text-white mb-1">No Folders Added Yet</h3>
+            <h3 className="text-lg font-bold text-white mb-1">No Folders Displaying Currently</h3>
             <p className="text-xs text-zinc-400 mb-6">
-              Paste a MEGA folder link to index folders and subfolders automatically.
+              {hasLocalBackup
+                ? `Render container restarted. Found ${localBackupCount} saved folder links in your browser database!`
+                : 'Paste a MEGA folder link to index folders and subfolders automatically.'}
             </p>
-            <button
-              onClick={() => setIsAddModalOpen(true)}
-              className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition-all shadow-md"
-            >
-              Add First MEGA Folder Link
-            </button>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+              {hasLocalBackup && (
+                <button
+                  onClick={handleRestoreFromLocalCache}
+                  disabled={isRestoringLocal}
+                  className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-bold transition-all shadow-md flex items-center gap-1.5"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span>{isRestoringLocal ? 'Restoring Folders...' : `Show / Restore ${localBackupCount} Saved Folders`}</span>
+                </button>
+              )}
+
+              <button
+                onClick={() => setIsAddModalOpen(true)}
+                className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition-all shadow-md"
+              >
+                Add MEGA Folder Link
+              </button>
+            </div>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-5">
