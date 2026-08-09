@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { AlbumCard } from '@/components/gallery/AlbumCard';
 import { Album } from '@/types';
-import { FolderPlus, Sparkles, X, Link as LinkIcon, HardDrive, PlayCircle, Folder, ChevronRight, Video, Image as ImageIcon } from 'lucide-react';
+import { FolderPlus, Sparkles, X, Link as LinkIcon, HardDrive, PlayCircle, Folder, ChevronRight, Video, Image as ImageIcon, Download, Upload } from 'lucide-react';
 
 interface DisplayFolder {
   albumId: string;
@@ -166,10 +166,56 @@ export default function HomePage() {
     setNewMegaUrl('https://mega.nz/folder/example#demo-key-2026');
   };
 
+  const handleExportBackup = async () => {
+    try {
+      const res = await fetch('/api/albums/backup');
+      if (res.ok) {
+        const data = await res.json();
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `megavault-albums-backup-${new Date().toISOString().split('T')[0]}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        alert('Failed to export backup');
+      }
+    } catch (err) {
+      alert('Error exporting backup');
+    }
+  };
+
+  const handleImportBackup = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const payload = JSON.parse(text);
+
+      const res = await fetch('/api/albums/backup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        alert(data.message || 'Backup restored successfully!');
+        loadData();
+      } else {
+        alert(data.error || 'Failed to restore backup');
+      }
+    } catch (err) {
+      alert('Invalid backup JSON file');
+    }
+  };
+
   return (
     <PageContainer>
-      {/* Top Bar Header */}
-      <div className="flex items-center justify-between gap-4 mb-8">
+      {/* Page Header */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 sm:mb-8">
         <div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight flex items-center gap-2">
             <span>MegaVault</span>
@@ -178,13 +224,33 @@ export default function HomePage() {
           <p className="text-xs text-zinc-400 mt-0.5">Private Media Collections & Folders</p>
         </div>
 
-        <button
-          onClick={() => setIsAddModalOpen(true)}
-          className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center gap-2 transition-all shadow-md shadow-blue-600/20"
-        >
-          <FolderPlus className="w-4 h-4" />
-          <span>New Album Link</span>
-        </button>
+        <div className="flex items-center space-x-2 sm:space-x-3 w-full sm:w-auto">
+          <button
+            onClick={handleExportBackup}
+            title="Export Albums JSON Backup"
+            className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 transition-all text-xs flex items-center gap-1.5"
+          >
+            <Download className="w-4 h-4 text-blue-400" />
+            <span className="hidden sm:inline">Export</span>
+          </button>
+
+          <label
+            title="Restore Albums JSON Backup"
+            className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 transition-all text-xs flex items-center gap-1.5 cursor-pointer"
+          >
+            <Upload className="w-4 h-4 text-emerald-400" />
+            <span className="hidden sm:inline">Restore</span>
+            <input type="file" accept=".json" onChange={handleImportBackup} className="hidden" />
+          </label>
+
+          <button
+            onClick={() => setIsAddModalOpen(true)}
+            className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center gap-2 transition-all shadow-md shadow-blue-600/20"
+          >
+            <FolderPlus className="w-4 h-4" />
+            <span>New Album Link</span>
+          </button>
+        </div>
       </div>
 
       {/* Folders & Subfolders Section (ONLY Folders on Homepage) */}
