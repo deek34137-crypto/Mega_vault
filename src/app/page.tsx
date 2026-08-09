@@ -1,15 +1,25 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { AlbumCard } from '@/components/gallery/AlbumCard';
-import { MediaCard } from '@/components/gallery/MediaCard';
-import { Album, MediaItem } from '@/types';
-import { FolderPlus, Sparkles, X, Link as LinkIcon, HardDrive, PlayCircle } from 'lucide-react';
+import { Album } from '@/types';
+import { FolderPlus, Sparkles, X, Link as LinkIcon, HardDrive, PlayCircle, Folder, ChevronRight, Video, Image as ImageIcon } from 'lucide-react';
+
+interface DisplayFolder {
+  albumId: string;
+  albumTitle: string;
+  folderName: string;
+  subfolderPath: string;
+  itemCount: number;
+  megaUrl: string;
+  createdAt: string;
+}
 
 export default function HomePage() {
   const [albums, setAlbums] = useState<Album[]>([]);
-  const [recentMedia, setRecentMedia] = useState<MediaItem[]>([]);
+  const [displayFolders, setDisplayFolders] = useState<DisplayFolder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [newTitle, setNewTitle] = useState('');
@@ -22,16 +32,48 @@ export default function HomePage() {
       const res = await fetch('/api/albums');
       if (res.ok) {
         const data = await res.json();
-        setAlbums(data.albums || []);
-        
-        // Load media from first album for recent photos stream
-        if (data.albums && data.albums.length > 0) {
-          const mediaRes = await fetch(`/api/albums/${data.albums[0].id}/media`);
-          if (mediaRes.ok) {
-            const mediaData = await mediaRes.json();
-            setRecentMedia(mediaData.items || []);
+        const loadedAlbums: Album[] = data.albums || [];
+        setAlbums(loadedAlbums);
+
+        // Fetch subfolder trees for each album to display folders on homepage
+        const foldersList: DisplayFolder[] = [];
+        for (const alb of loadedAlbums) {
+          try {
+            const mediaRes = await fetch(`/api/albums/${alb.id}/media`);
+            if (mediaRes.ok) {
+              const mediaData = await mediaRes.json();
+              
+              if (mediaData.subfolders && mediaData.subfolders.length > 0) {
+                // Folder has subfolders -> render each subfolder as a card
+                for (const sub of mediaData.subfolders) {
+                  foldersList.push({
+                    albumId: alb.id,
+                    albumTitle: alb.title,
+                    folderName: sub.name,
+                    subfolderPath: sub.path,
+                    itemCount: sub.itemCount || 0,
+                    megaUrl: alb.megaUrl || '',
+                    createdAt: alb.createdAt,
+                  });
+                }
+              } else {
+                // Folder has files directly -> render main album folder
+                foldersList.push({
+                  albumId: alb.id,
+                  albumTitle: alb.title,
+                  folderName: alb.title,
+                  subfolderPath: '',
+                  itemCount: alb.mediaCount.total || 0,
+                  megaUrl: alb.megaUrl || '',
+                  createdAt: alb.createdAt,
+                });
+              }
+            }
+          } catch (e) {
+            console.error('Error fetching subfolders for album:', alb.id, e);
           }
         }
+        setDisplayFolders(foldersList);
       }
     } catch (err) {
       console.error('Failed to load albums:', err);
@@ -101,7 +143,7 @@ export default function HomePage() {
             <span>MegaVault</span>
             <Sparkles className="w-5 h-5 text-blue-400" />
           </h1>
-          <p className="text-xs text-zinc-400 mt-0.5">Family & Personal Photo Vault</p>
+          <p className="text-xs text-zinc-400 mt-0.5">Private Media Collections & Folders</p>
         </div>
 
         <button
@@ -109,59 +151,72 @@ export default function HomePage() {
           className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center gap-2 transition-all shadow-md shadow-blue-600/20"
         >
           <FolderPlus className="w-4 h-4" />
-          <span>New Album</span>
+          <span>New Album Link</span>
         </button>
       </div>
 
-      {/* Albums Section (Google Photos Style) */}
-      <section className="mb-10">
+      {/* Folders & Subfolders Section (ONLY Folders on Homepage) */}
+      <section className="mb-12">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-wider">Albums</h2>
-          <span className="text-xs text-zinc-500 font-medium">{albums.length} collections</span>
+          <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-wider">Indexed Folders</h2>
+          <span className="text-xs text-zinc-500 font-medium">{displayFolders.length} folders</span>
         </div>
 
         {isLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-44 rounded-2xl bg-zinc-900/60 animate-pulse border border-zinc-800" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="h-36 rounded-2xl bg-zinc-900/60 animate-pulse border border-zinc-800" />
             ))}
           </div>
-        ) : albums.length === 0 ? (
-          <div className="glass-panel p-8 rounded-2xl text-center border border-zinc-800">
-            <p className="text-sm text-zinc-400 mb-4">No albums created yet.</p>
+        ) : displayFolders.length === 0 ? (
+          <div className="glass-panel p-12 rounded-3xl text-center border border-zinc-800">
+            <div className="w-14 h-14 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 mx-auto mb-4">
+              <Folder className="w-7 h-7" />
+            </div>
+            <h3 className="text-lg font-bold text-white mb-1">No Folders Added Yet</h3>
+            <p className="text-xs text-zinc-400 mb-6">
+              Paste a MEGA folder link to index folders and subfolders automatically.
+            </p>
             <button
               onClick={() => setIsAddModalOpen(true)}
-              className="px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-semibold"
+              className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition-all shadow-md"
             >
-              Add First MEGA Folder
+              Add First MEGA Folder Link
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {albums.map((album) => (
-              <AlbumCard key={album.id} album={album} onDelete={handleDeleteAlbum} />
-            ))}
-          </div>
-        )}
-      </section>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {displayFolders.map((folder, idx) => (
+              <Link
+                key={idx}
+                href={`/albums/${folder.albumId}${folder.subfolderPath ? `?folder=${encodeURIComponent(folder.subfolderPath)}` : ''}`}
+                className="group"
+              >
+                <div className="glass-panel glass-panel-hover p-6 rounded-3xl border border-zinc-800/80 bg-zinc-950/60 flex items-start justify-between gap-4 transition-all duration-300 hover:border-blue-500/40">
+                  <div className="flex items-start space-x-4">
+                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-600/20 to-indigo-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400 flex-shrink-0 group-hover:scale-105 transition-transform">
+                      <Folder className="w-6 h-6 fill-blue-400/20" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-bold text-white group-hover:text-blue-400 transition-colors line-clamp-1">
+                        {folder.folderName}
+                      </h3>
+                      <p className="text-xs text-zinc-400 mt-1 flex items-center gap-2 font-medium">
+                        <span>{folder.itemCount} media items</span>
+                        {folder.albumTitle !== folder.folderName && (
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-zinc-400">
+                            {folder.albumTitle}
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
 
-      <hr className="border-zinc-800/80 my-8" />
-
-      {/* Recent Photos Stream (Google Photos Style) */}
-      <section className="mb-12">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-wider">Recent Photos & Videos</h2>
-          <span className="text-xs text-zinc-500 font-medium">All Media</span>
-        </div>
-
-        {recentMedia.length === 0 ? (
-          <div className="text-center py-12 text-zinc-500 text-sm">
-            <span>No recent media indexed yet.</span>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-            {recentMedia.map((media) => (
-              <MediaCard key={media.id} media={media} />
+                  <div className="p-2 rounded-full bg-zinc-900 border border-zinc-800 text-zinc-400 group-hover:text-blue-400 group-hover:translate-x-1 transition-all">
+                    <ChevronRight className="w-4 h-4" />
+                  </div>
+                </div>
+              </Link>
             ))}
           </div>
         )}
@@ -196,7 +251,7 @@ export default function HomePage() {
 
             <h3 className="text-xl font-bold text-white mb-1">Add MEGA Folder Album</h3>
             <p className="text-xs text-zinc-400 mb-6">
-              Paste your shared MEGA folder link. MegaVault will index media without uploading or storing files.
+              Paste your shared MEGA folder link. MegaVault will index media and subfolders without uploading or storing files.
             </p>
 
             <form onSubmit={handleCreateAlbum} className="space-y-4">

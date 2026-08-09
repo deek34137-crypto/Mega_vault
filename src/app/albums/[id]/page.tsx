@@ -2,9 +2,10 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { MediaCard } from '@/components/gallery/MediaCard';
+import { VideoPlayer } from '@/components/viewer/VideoPlayer';
 import { Album, MediaItem, FilterMediaType } from '@/types';
 import {
   ArrowLeft,
@@ -17,20 +18,32 @@ import {
   Download,
   ChevronLeft,
   ChevronRight,
+  Folder,
   AlertTriangle,
 } from 'lucide-react';
 import { formatBytes, formatDate } from '@/lib/utils/cn';
 
+interface SubfolderItem {
+  name: string;
+  path: string;
+  itemCount: number;
+}
+
 export default function AlbumDetailsPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
+
   const rawId = params?.id;
   const albumId = Array.isArray(rawId) ? rawId[0] : (rawId as string) || '';
+  const folderParam = searchParams.get('folder') || '';
 
   const [album, setAlbum] = useState<Album | null>(null);
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
+  const [subfolders, setSubfolders] = useState<SubfolderItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [mediaTypeFilter, setMediaTypeFilter] = useState<FilterMediaType>('all');
@@ -42,11 +55,13 @@ export default function AlbumDetailsPage() {
       setIsLoading(true);
       setErrorMessage(null);
 
-      const res = await fetch(`/api/albums/${encodeURIComponent(albumId)}/media`);
+      const url = `/api/albums/${encodeURIComponent(albumId)}/media${folderParam ? `?folder=${encodeURIComponent(folderParam)}` : ''}`;
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
         setAlbum(data.album);
         setMediaItems(data.items || []);
+        setSubfolders(data.subfolders || []);
       } else {
         setErrorMessage('Failed to load media for this album.');
       }
@@ -56,7 +71,7 @@ export default function AlbumDetailsPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [albumId]);
+  }, [albumId, folderParam]);
 
   useEffect(() => {
     loadMedia();
@@ -69,8 +84,7 @@ export default function AlbumDetailsPage() {
       setIsRefreshing(true);
       const res = await fetch(`/api/albums/${encodeURIComponent(albumId)}/refresh`, { method: 'POST' });
       if (res.ok) {
-        const data = await res.json();
-        setMediaItems(data.media?.items || []);
+        loadMedia();
       }
     } catch (err) {
       console.error('Error refreshing album:', err);
@@ -105,10 +119,10 @@ export default function AlbumDetailsPage() {
     setSelectedIndex((prev) => (prev! < filteredMedia.length - 1 ? prev! + 1 : 0));
   }, [selectedIndex, filteredMedia.length]);
 
-  // Keyboard navigation shortcuts
+  // Keyboard navigation for image lightbox
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (selectedIndex === null) return;
+      if (selectedIndex === null || selectedMedia?.mediaType === 'VIDEO') return;
       if (e.key === 'ArrowLeft') handlePrev();
       if (e.key === 'ArrowRight') handleNext();
       if (e.key === 'Escape') setSelectedIndex(null);
@@ -116,33 +130,42 @@ export default function AlbumDetailsPage() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedIndex, handlePrev, handleNext]);
+  }, [selectedIndex, selectedMedia, handlePrev, handleNext]);
 
   return (
     <PageContainer>
-      {/* Back Navigation */}
-      <Link
-        href="/"
-        className="inline-flex items-center space-x-2 text-xs font-semibold text-zinc-400 hover:text-white mb-6 group transition-colors"
-      >
-        <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
-        <span>Back to Gallery</span>
-      </Link>
+      {/* Back Navigation & Breadcrumb */}
+      <div className="flex items-center space-x-2 text-xs font-semibold text-zinc-400 mb-6">
+        <Link href="/" className="hover:text-white flex items-center space-x-1">
+          <ArrowLeft className="w-4 h-4" />
+          <span>Homepage</span>
+        </Link>
+        {folderParam && (
+          <>
+            <span>/</span>
+            <Link href={`/albums/${albumId}`} className="hover:text-white">
+              {album?.title || 'Album'}
+            </Link>
+            <span>/</span>
+            <span className="text-white font-mono">{folderParam}</span>
+          </>
+        )}
+      </div>
 
       {/* Album Header Banner */}
       <div className="relative rounded-3xl glass-panel p-8 mb-8 overflow-hidden border border-zinc-800/80">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 relative z-10">
           <div>
             <div className="flex items-center space-x-2 mb-1.5">
-              <span className="px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[11px] font-semibold">
-                MEGA LINK INDEX
+              <span className="px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[11px] font-semibold uppercase">
+                {folderParam ? 'SUBFOLDER VIEW' : 'ALBUM VIEW'}
               </span>
               {album && <span className="text-xs text-zinc-400">{formatDate(album.createdAt)}</span>}
             </div>
             <h1 className="text-2xl sm:text-4xl font-extrabold text-white mb-1">
-              {album?.title || 'Album Details'}
+              {folderParam || album?.title || 'Album Details'}
             </h1>
-            {album?.description && (
+            {album?.description && !folderParam && (
               <p className="text-sm text-zinc-400 max-w-xl">{album.description}</p>
             )}
           </div>
@@ -165,6 +188,33 @@ export default function AlbumDetailsPage() {
         <div className="mb-6 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs font-medium flex items-center gap-2">
           <AlertTriangle className="w-4 h-4 flex-shrink-0 text-amber-400" />
           <span>{errorMessage}</span>
+        </div>
+      )}
+
+      {/* Subfolders Grid inside Album */}
+      {subfolders.length > 0 && (
+        <div className="mb-8">
+          <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-3">Subfolders</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {subfolders.map((sub, i) => (
+              <Link key={i} href={`/albums/${albumId}?folder=${encodeURIComponent(sub.path)}`}>
+                <div className="glass-panel glass-panel-hover p-4 rounded-2xl border border-zinc-800/80 flex items-center justify-between group">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+                      <Folder className="w-5 h-5 fill-blue-400/20" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-white group-hover:text-blue-400 transition-colors">
+                        {sub.name}
+                      </h4>
+                      <span className="text-xs text-zinc-400">{sub.itemCount} items</span>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-zinc-500 group-hover:text-blue-400 group-hover:translate-x-1 transition-all" />
+                </div>
+              </Link>
+            ))}
+          </div>
         </div>
       )}
 
@@ -224,9 +274,9 @@ export default function AlbumDetailsPage() {
             <div key={i} className="aspect-square rounded-2xl bg-zinc-900/60 animate-pulse border border-zinc-800" />
           ))}
         </div>
-      ) : filteredMedia.length === 0 ? (
+      ) : filteredMedia.length === 0 && subfolders.length === 0 ? (
         <div className="glass-panel p-12 rounded-3xl text-center border border-zinc-800 my-8">
-          <p className="text-sm text-zinc-400 mb-2">No media items found in this album.</p>
+          <p className="text-sm text-zinc-400 mb-2">No media items found in this folder.</p>
           <p className="text-xs text-zinc-500">Click "Refresh Album" to fetch folder contents from MEGA.</p>
         </div>
       ) : (
@@ -237,8 +287,20 @@ export default function AlbumDetailsPage() {
         </div>
       )}
 
-      {/* Fullscreen Lightbox / Media Viewer */}
-      {selectedMedia && (
+      {/* Custom Video Player Modal */}
+      {selectedMedia && selectedMedia.mediaType === 'VIDEO' && (
+        <VideoPlayer
+          media={selectedMedia}
+          onClose={() => setSelectedIndex(null)}
+          onPrev={handlePrev}
+          onNext={handleNext}
+          currentIndex={selectedIndex!}
+          totalCount={filteredMedia.length}
+        />
+      )}
+
+      {/* Image Lightbox Viewer Modal */}
+      {selectedMedia && selectedMedia.mediaType === 'IMAGE' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/95 backdrop-blur-2xl">
           <button
             onClick={() => setSelectedIndex(null)}
@@ -271,9 +333,8 @@ export default function AlbumDetailsPage() {
                 />
               ) : (
                 <div className="p-16 text-zinc-500 flex flex-col items-center">
-                  <Play className="w-16 h-16 mb-2 text-blue-500" />
+                  <ImageIcon className="w-16 h-16 mb-2 text-blue-500" />
                   <span className="font-mono text-sm text-zinc-300 mb-1">{selectedMedia.fileName}</span>
-                  <span className="text-xs text-zinc-500">Video Item</span>
                 </div>
               )}
             </div>
@@ -287,13 +348,15 @@ export default function AlbumDetailsPage() {
               </div>
 
               <div className="flex items-center space-x-2">
-                <button
-                  onClick={() => alert('Media direct link opened.')}
+                <a
+                  href={selectedMedia.streamUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-blue-600/20"
                 >
                   <Download className="w-4 h-4" />
-                  <span>Open / View</span>
-                </button>
+                  <span>Open Image</span>
+                </a>
               </div>
             </div>
           </div>

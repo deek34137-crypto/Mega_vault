@@ -1,0 +1,276 @@
+'use client';
+
+import React, { useRef, useState, useEffect, useCallback } from 'react';
+import {
+  Play,
+  Pause,
+  Volume2,
+  VolumeX,
+  Maximize,
+  Minimize,
+  RotateCcw,
+  RotateCw,
+  X,
+  Download,
+  Info,
+} from 'lucide-react';
+import { formatBytes, formatDuration } from '@/lib/utils/cn';
+import { MediaItem } from '@/types';
+
+interface VideoPlayerProps {
+  media: MediaItem;
+  onClose: () => void;
+  onPrev?: () => void;
+  onNext?: () => void;
+  currentIndex?: number;
+  totalCount?: number;
+}
+
+export const VideoPlayer: React.FC<VideoPlayerProps> = ({
+  media,
+  onClose,
+  onPrev,
+  onNext,
+  currentIndex,
+  totalCount,
+}) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const [isPlaying, setIsPlaying] = useState(true);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(1);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showOverlay, setShowOverlay] = useState(true);
+  const [overlayTimeout, setOverlayTimeout] = useState<NodeJS.Timeout | null>(null);
+
+  // Auto hide control overlay after 3 seconds of inactivity
+  const handleMouseMove = () => {
+    setShowOverlay(true);
+    if (overlayTimeout) clearTimeout(overlayTimeout);
+    const timeout = setTimeout(() => setShowOverlay(false), 3000);
+    setOverlayTimeout(timeout);
+  };
+
+  const togglePlay = useCallback(() => {
+    if (!videoRef.current) return;
+    if (videoRef.current.paused) {
+      videoRef.current.play();
+      setIsPlaying(true);
+    } else {
+      videoRef.current.pause();
+      setIsPlaying(false);
+    }
+  }, []);
+
+  const seek = useCallback((seconds: number) => {
+    if (!videoRef.current) return;
+    videoRef.current.currentTime = Math.max(0, Math.min(videoRef.current.duration, videoRef.current.currentTime + seconds));
+  }, []);
+
+  const toggleMute = useCallback(() => {
+    if (!videoRef.current) return;
+    videoRef.current.muted = !videoRef.current.muted;
+    setIsMuted(videoRef.current.muted);
+  }, []);
+
+  const adjustVolume = useCallback((delta: number) => {
+    if (!videoRef.current) return;
+    const newVol = Math.max(0, Math.min(1, volume + delta));
+    videoRef.current.volume = newVol;
+    setVolume(newVol);
+    if (newVol > 0 && isMuted) {
+      videoRef.current.muted = false;
+      setIsMuted(false);
+    }
+  }, [volume, isMuted]);
+
+  const toggleFullscreen = useCallback(() => {
+    if (!containerRef.current) return;
+    if (!document.fullscreenElement) {
+      containerRef.current.requestFullscreen().catch((err) => console.error(err));
+      setIsFullscreen(true);
+    } else {
+      document.exitFullscreen().catch((err) => console.error(err));
+      setIsFullscreen(false);
+    }
+  }, []);
+
+  // Keyboard Shortcuts Handler
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger if user is typing in an input
+      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return;
+
+      switch (e.code) {
+        case 'Space':
+        case 'KeyK':
+          e.preventDefault();
+          togglePlay();
+          break;
+        case 'ArrowRight':
+          e.preventDefault();
+          seek(5); // +5s
+          break;
+        case 'ArrowLeft':
+          e.preventDefault();
+          seek(-5); // -5s
+          break;
+        case 'KeyL':
+          e.preventDefault();
+          seek(10); // +10s
+          break;
+        case 'KeyJ':
+          e.preventDefault();
+          seek(-10); // -10s
+          break;
+        case 'ArrowUp':
+          e.preventDefault();
+          adjustVolume(0.1);
+          break;
+        case 'ArrowDown':
+          e.preventDefault();
+          adjustVolume(-0.1);
+          break;
+        case 'KeyM':
+          e.preventDefault();
+          toggleMute();
+          break;
+        case 'KeyF':
+          e.preventDefault();
+          toggleFullscreen();
+          break;
+        case 'Escape':
+          onClose();
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [togglePlay, seek, adjustVolume, toggleMute, toggleFullscreen, onClose]);
+
+  return (
+    <div
+      ref={containerRef}
+      onMouseMove={handleMouseMove}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 backdrop-blur-2xl select-none"
+    >
+      {/* HTML5 Video Element */}
+      <video
+        ref={videoRef}
+        autoPlay
+        src={media.streamUrl}
+        onClick={togglePlay}
+        onTimeUpdate={() => videoRef.current && setCurrentTime(videoRef.current.currentTime)}
+        onLoadedMetadata={() => videoRef.current && setDuration(videoRef.current.duration)}
+        onEnded={() => setIsPlaying(false)}
+        className="max-h-screen w-full object-contain cursor-pointer"
+      />
+
+      {/* Top Header Overlay */}
+      <div
+        className={`absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/80 via-black/40 to-transparent flex items-center justify-between transition-opacity duration-300 z-20 ${
+          showOverlay ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
+      >
+        <div>
+          <h3 className="text-sm font-bold text-white font-mono">{media.fileName}</h3>
+          <p className="text-xs text-zinc-400">
+            {formatBytes(media.size)} {currentIndex !== undefined && totalCount ? `• ${currentIndex + 1} of ${totalCount}` : ''}
+          </p>
+        </div>
+
+        <button
+          onClick={onClose}
+          className="p-2.5 rounded-full bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-700/70"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+
+      {/* Bottom Controls Bar Overlay */}
+      <div
+        className={`absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black/90 via-black/50 to-transparent transition-opacity duration-300 z-20 ${
+          showOverlay ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
+      >
+        {/* Timeline Seekbar */}
+        <div className="flex items-center space-x-3 mb-4">
+          <span className="text-xs font-mono text-zinc-300">{formatDuration(currentTime)}</span>
+          <input
+            type="range"
+            min={0}
+            max={duration || 100}
+            value={currentTime}
+            onChange={(e) => {
+              const newTime = parseFloat(e.target.value);
+              if (videoRef.current) videoRef.current.currentTime = newTime;
+              setCurrentTime(newTime);
+            }}
+            className="flex-1 h-1.5 bg-zinc-700 accent-blue-500 rounded-lg cursor-pointer"
+          />
+          <span className="text-xs font-mono text-zinc-400">{formatDuration(duration)}</span>
+        </div>
+
+        {/* Buttons Controls */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <button
+              onClick={togglePlay}
+              className="p-2.5 rounded-full bg-blue-600 hover:bg-blue-500 text-white transition-all shadow-md shadow-blue-600/30"
+            >
+              {isPlaying ? <Pause className="w-5 h-5 fill-white" /> : <Play className="w-5 h-5 fill-white translate-x-0.5" />}
+            </button>
+
+            <button onClick={() => seek(-5)} title="-5s (Left Arrow)" className="text-zinc-400 hover:text-white transition-colors">
+              <RotateCcw className="w-5 h-5" />
+            </button>
+
+            <button onClick={() => seek(5)} title="+5s (Right Arrow)" className="text-zinc-400 hover:text-white transition-colors">
+              <RotateCw className="w-5 h-5" />
+            </button>
+
+            {/* Volume Control */}
+            <div className="flex items-center space-x-2 pl-2 border-l border-zinc-800">
+              <button onClick={toggleMute} className="text-zinc-400 hover:text-white transition-colors">
+                {isMuted || volume === 0 ? <VolumeX className="w-5 h-5 text-red-400" /> : <Volume2 className="w-5 h-5" />}
+              </button>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={isMuted ? 0 : volume}
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value);
+                  setVolume(val);
+                  if (videoRef.current) videoRef.current.volume = val;
+                }}
+                className="w-20 h-1 bg-zinc-700 accent-blue-500 rounded cursor-pointer"
+              />
+            </div>
+          </div>
+
+          {/* Right Controls */}
+          <div className="flex items-center space-x-3">
+            {/* Keyboard Shortcuts Tooltip */}
+            <div className="hidden sm:flex items-center space-x-2 text-[11px] font-mono text-zinc-400 bg-zinc-900/80 px-3 py-1 rounded-lg border border-zinc-800">
+              <span>Space: Play/Pause</span>
+              <span>•</span>
+              <span>←/→: ±5s</span>
+              <span>•</span>
+              <span>F: Fullscreen</span>
+            </div>
+
+            <button onClick={toggleFullscreen} className="text-zinc-400 hover:text-white p-2 rounded-lg transition-colors">
+              {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};

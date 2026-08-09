@@ -1,8 +1,8 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Play, Film, Image as ImageIcon, FileText } from 'lucide-react';
+import { Play, Film, Image as ImageIcon } from 'lucide-react';
 import { MediaItem } from '@/types';
 import { formatBytes, formatDuration } from '@/lib/utils/cn';
 
@@ -11,15 +11,15 @@ interface MediaCardProps {
   onClick?: (media: MediaItem) => void;
 }
 
-// Generate consistent gradient backdrop from filename
+// Consistent colorful gradient fallback for cards when video/image preview is loading
 function getGradientFromFileName(name: string): string {
   const gradients = [
-    'from-blue-900/60 via-indigo-950/80 to-zinc-950',
-    'from-purple-900/60 via-slate-950/80 to-zinc-950',
-    'from-cyan-900/60 via-blue-950/80 to-zinc-950',
-    'from-emerald-900/60 via-teal-950/80 to-zinc-950',
-    'from-rose-900/60 via-zinc-950/80 to-zinc-950',
-    'from-amber-900/60 via-zinc-950/80 to-zinc-950',
+    'from-blue-900/80 via-indigo-950/90 to-zinc-950',
+    'from-purple-900/80 via-slate-950/90 to-zinc-950',
+    'from-cyan-900/80 via-blue-950/90 to-zinc-950',
+    'from-emerald-900/80 via-teal-950/90 to-zinc-950',
+    'from-rose-900/80 via-zinc-950/90 to-zinc-950',
+    'from-amber-900/80 via-zinc-950/90 to-zinc-950',
   ];
   let hash = 0;
   for (let i = 0; i < name.length; i++) {
@@ -30,6 +30,9 @@ function getGradientFromFileName(name: string): string {
 }
 
 export const MediaCard: React.FC<MediaCardProps> = ({ media, onClick }) => {
+  const [videoFrameLoaded, setVideoFrameLoaded] = useState(false);
+  const [videoError, setVideoError] = useState(false);
+
   const isVideo = media.mediaType === 'VIDEO';
   const ext = media.fileName.split('.').pop()?.toUpperCase() || (isVideo ? 'VIDEO' : 'IMG');
   const gradient = getGradientFromFileName(media.fileName);
@@ -51,27 +54,63 @@ export const MediaCard: React.FC<MediaCardProps> = ({ media, onClick }) => {
             decoding="async"
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out"
           />
-        ) : (
-          /* Rich Cover Graphic when Thumbnail is unavailable */
-          <div className={`w-full h-full bg-gradient-to-br ${gradient} p-3.5 flex flex-col justify-between relative overflow-hidden`}>
-            {/* Background Film Mesh Pattern */}
-            <div className="absolute -right-4 -bottom-4 opacity-10 pointer-events-none">
-              {isVideo ? <Film className="w-24 h-24 text-white" /> : <ImageIcon className="w-24 h-24 text-white" />}
+        ) : isVideo && media.streamUrl && !videoError ? (
+          /* HTML5 Video First Frame Snapshot (#t=1.0) */
+          <div className="relative w-full h-full bg-zinc-950 overflow-hidden">
+            <video
+              src={`${media.streamUrl}#t=1.0`}
+              preload="metadata"
+              muted
+              playsInline
+              onLoadedData={() => setVideoFrameLoaded(true)}
+              onError={() => setVideoError(true)}
+              className={`w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out pointer-events-none ${
+                videoFrameLoaded ? 'opacity-100' : 'opacity-0'
+              }`}
+            />
+
+            {/* Gradient Poster Placeholder while video frame loads */}
+            {!videoFrameLoaded && (
+              <div className={`absolute inset-0 bg-gradient-to-br ${gradient} p-3.5 flex flex-col justify-between`}>
+                <div className="flex items-center justify-between z-10">
+                  <span className="px-2 py-0.5 rounded-md bg-black/60 backdrop-blur-md text-[10px] font-extrabold text-zinc-200 border border-white/10 uppercase flex items-center gap-1">
+                    <Film className="w-3 h-3 text-purple-400" />
+                    <span>{ext}</span>
+                  </span>
+                  <span className="text-[10px] font-mono text-zinc-400 bg-black/40 px-1.5 py-0.5 rounded">
+                    {formatBytes(media.size)}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Video Play Overlay */}
+            <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/10 transition-colors">
+              <div className="w-12 h-12 rounded-full bg-blue-600/90 text-white flex items-center justify-center backdrop-blur-md group-hover:scale-110 group-hover:bg-blue-500 transition-all shadow-xl shadow-blue-600/40 border border-white/20">
+                <Play className="w-5 h-5 fill-white translate-x-0.5" />
+              </div>
             </div>
 
-            {/* Top Format Badge */}
+            {/* Filename Label */}
+            <div className="absolute bottom-2 left-2 right-2 z-10 bg-black/75 backdrop-blur-md p-2 rounded-xl border border-white/10">
+              <p className="text-xs font-semibold text-white font-mono truncate leading-snug" title={media.fileName}>
+                {media.fileName}
+              </p>
+            </div>
+          </div>
+        ) : (
+          /* Fallback Poster Card */
+          <div className={`w-full h-full bg-gradient-to-br ${gradient} p-3.5 flex flex-col justify-between relative overflow-hidden`}>
             <div className="flex items-center justify-between z-10">
-              <span className="px-2 py-0.5 rounded-md bg-black/60 backdrop-blur-md text-[10px] font-extrabold tracking-wider text-zinc-200 border border-white/10 uppercase flex items-center gap-1">
+              <span className="px-2 py-0.5 rounded-md bg-black/60 backdrop-blur-md text-[10px] font-extrabold text-zinc-200 border border-white/10 uppercase flex items-center gap-1">
                 {isVideo ? <Film className="w-3 h-3 text-purple-400" /> : <ImageIcon className="w-3 h-3 text-blue-400" />}
                 <span>{ext}</span>
               </span>
-
-              <span className="text-[10px] font-mono text-zinc-400 bg-black/40 px-1.5 py-0.5 rounded backdrop-blur-sm">
+              <span className="text-[10px] font-mono text-zinc-400 bg-black/40 px-1.5 py-0.5 rounded">
                 {formatBytes(media.size)}
               </span>
             </div>
 
-            {/* Video Play Button Overlay */}
             {isVideo && (
               <div className="my-auto mx-auto z-10">
                 <div className="w-12 h-12 rounded-full bg-blue-600/90 text-white flex items-center justify-center backdrop-blur-md group-hover:scale-110 group-hover:bg-blue-500 transition-all shadow-xl shadow-blue-600/40 border border-white/20">
@@ -80,31 +119,11 @@ export const MediaCard: React.FC<MediaCardProps> = ({ media, onClick }) => {
               </div>
             )}
 
-            {/* Filename Preview Label directly on cover */}
-            <div className="z-10 bg-black/60 backdrop-blur-md p-2 rounded-xl border border-white/10 mt-auto">
+            <div className="z-10 bg-black/75 backdrop-blur-md p-2 rounded-xl border border-white/10 mt-auto">
               <p className="text-xs font-semibold text-white font-mono truncate leading-snug" title={media.fileName}>
                 {media.fileName}
               </p>
             </div>
-          </div>
-        )}
-
-        {/* Top Badges for Images with Thumbnail */}
-        {media.thumbnailUrl && (
-          <div className="absolute top-2 left-2 right-2 flex items-center justify-between pointer-events-none">
-            <span className="px-2 py-0.5 rounded-md bg-black/75 backdrop-blur-md text-[10px] font-semibold tracking-wider text-zinc-200 uppercase border border-white/10 flex items-center gap-1">
-              {isVideo ? (
-                <>
-                  <Film className="w-3 h-3 text-purple-400" />
-                  <span>{ext}</span>
-                </>
-              ) : (
-                <>
-                  <ImageIcon className="w-3 h-3 text-blue-400" />
-                  <span>{ext}</span>
-                </>
-              )}
-            </span>
           </div>
         )}
       </div>

@@ -14,10 +14,12 @@ export async function GET(
 
   try {
     const { id } = await params;
+    const { searchParams } = new URL(request.url);
+    const subfolderPath = searchParams.get('folder') || undefined;
+
     const album = await getAlbumById(id);
 
     if (!album) {
-      // Return graceful empty response instead of crashing with 404
       return NextResponse.json({
         album: {
           id,
@@ -27,17 +29,19 @@ export async function GET(
           created_at: new Date().toISOString(),
         },
         items: [],
+        subfolders: [],
         mediaCount: { total: 0, images: 0, videos: 0 },
       });
     }
 
-    const result = await fetchMegaFolderMedia(album.id, album.mega_link);
+    const result = await fetchMegaFolderMedia(album.id, album.mega_link, subfolderPath);
     return NextResponse.json({ album, ...result });
   } catch (error) {
     console.error('Error fetching album media:', error);
     return NextResponse.json({
       album: null,
       items: [],
+      subfolders: [],
       mediaCount: { total: 0, images: 0, videos: 0 },
       error: 'Failed to fetch album media',
     });
