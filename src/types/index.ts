@@ -35,9 +35,9 @@ export interface Album {
     images: number;
     videos: number;
   };
-  status: 'ACTIVE' | 'SYNCING' | 'UNAVAILABLE';
+  status?: 'ACTIVE' | 'SYNCING' | 'UNAVAILABLE';
   createdAt: string;
-  updatedAt: string;
+  updatedAt?: string;
 }
 
 export interface User {

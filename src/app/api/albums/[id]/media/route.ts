@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getAlbumById, getAllAlbums } from '@/lib/db';
+import { getAlbumById } from '@/lib/db';
 import { fetchMegaFolderMedia } from '@/lib/mega';
 import { isAuthenticated } from '@/lib/auth';
 
@@ -22,30 +22,11 @@ export async function GET(
 
     let album = await getAlbumById(id);
 
-    // Fallback: If album is not found by exact ID, search across all DB albums
-    if (!album) {
-      const allAlbums = await getAllAlbums();
-      if (allAlbums.length > 0) {
-        album = allAlbums[0]; // Fallback to active album
-      }
-    }
-
     if (!album || !album.mega_link) {
-      return NextResponse.json({
-        album: {
-          id: id || 'demo',
-          title: 'Media Album',
-          description: '',
-          mega_link: '',
-          createdAt: new Date().toISOString(),
-        },
-        items: [],
-        subfolders: [],
-        mediaCount: { total: 0, images: 0, videos: 0 },
-      });
+      return NextResponse.json({ error: 'Album not found' }, { status: 404 });
     }
 
-    // Protect against execution hangs with a 10s timeout race
+    // Protect against execution hangs with a 50s timeout race for initial large MEGA indexing
     const timeoutPromise = new Promise((resolve) =>
       setTimeout(
         () =>
@@ -56,7 +37,7 @@ export async function GET(
             mediaCount: { total: 0, images: 0, videos: 0 },
             timedOut: true,
           }),
-        10000
+        50000
       )
     );
 

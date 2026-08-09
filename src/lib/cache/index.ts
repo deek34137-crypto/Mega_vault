@@ -31,6 +31,14 @@ class MemoryCache {
     this.cache.delete(key);
   }
 
+  clearByPrefix(prefix: string): void {
+    for (const key of this.cache.keys()) {
+      if (key.startsWith(prefix)) {
+        this.cache.delete(key);
+      }
+    }
+  }
+
   clearAll(): void {
     this.cache.clear();
   }

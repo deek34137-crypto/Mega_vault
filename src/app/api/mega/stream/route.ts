@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getAlbumById } from '@/lib/db';
-import { File as MegaFile } from 'megajs';
+import { getMegaFileByHandle, fetchMegaFolderMedia } from '@/lib/mega';
 import { isAuthenticated } from '@/lib/auth';
 import { Readable } from 'stream';
 
@@ -24,34 +24,13 @@ export async function GET(request: Request) {
   }
 
   try {
-    const folder = MegaFile.fromURL(album.mega_link);
-    await folder.loadAttributes();
+    let targetFile = await getMegaFileByHandle(album.id, album.mega_link, handle);
 
-    let targetFile: any = null;
-
-    // Helper to find target file node by handle or downloadId recursively
-    const findFile = async (node: any) => {
-      if (targetFile) return;
-
-      if (node.directory && (!node.children || node.children.length === 0)) {
-        try {
-          await node.loadAttributes();
-        } catch (e) {}
-      }
-
-      if (node.children && Array.isArray(node.children)) {
-        for (const child of node.children) {
-          if (child.directory) {
-            await findFile(child);
-          } else if (child.downloadId === handle || child.name === handle) {
-            targetFile = child;
-            return;
-          }
-        }
-      }
-    };
-
-    await findFile(folder);
+    // Fallback: If not in cache, invoke fetchMegaFolderMedia once to load and populate cache
+    if (!targetFile) {
+      await fetchMegaFolderMedia(album.id, album.mega_link);
+      targetFile = await getMegaFileByHandle(album.id, album.mega_link, handle);
+    }
 
     if (!targetFile) {
       return NextResponse.json({ error: 'File handle not found in folder' }, { status: 404 });

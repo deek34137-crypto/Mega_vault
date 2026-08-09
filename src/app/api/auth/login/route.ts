@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { verifyPassword, createAuthSession, destroyAuthSession } from '@/lib/auth';
+import { verifyPassword, createAuthSession, destroyAuthSession, isAuthenticated } from '@/lib/auth';
 
 export async function POST(request: Request) {
   try {
@@ -21,6 +21,11 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE() {
+  // Only destroy a session that actually exists (prevents CSRF-triggered forced logout)
+  const auth = await isAuthenticated();
+  if (!auth) {
+    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+  }
   await destroyAuthSession();
   return NextResponse.json({ success: true });
 }

@@ -11,60 +11,6 @@ export const NAV_ITEMS = [
 export const SUPPORTED_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic'];
 export const SUPPORTED_VIDEO_EXTENSIONS = ['mp4', 'mov', 'mkv', 'webm'];
 
-export const MOCK_ALBUMS = [
-  {
-    id: 'alb-1',
-    title: 'Family Summer Trip 2025',
-    description: 'Vacation memories, beach sunset photos, and drone video clips.',
-    coverUrl: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=800&q=80',
-    color: '#3b82f6',
-    icon: 'Palmtree',
-    megaUrl: 'https://mega.nz/folder/example#key1',
-    mediaCount: { total: 42, images: 35, videos: 7 },
-    status: 'ACTIVE' as const,
-    createdAt: '2025-07-15T10:30:00Z',
-    updatedAt: '2025-07-20T14:15:00Z',
-  },
-  {
-    id: 'alb-2',
-    title: 'Wedding Celebration',
-    description: 'High-res ceremony photos and highlight reel video.',
-    coverUrl: 'https://images.unsplash.com/photo-1519741497674-611481863552?auto=format&fit=crop&w=800&q=80',
-    color: '#ec4899',
-    icon: 'Heart',
-    megaUrl: 'https://mega.nz/folder/example#key2',
-    mediaCount: { total: 128, images: 110, videos: 18 },
-    status: 'ACTIVE' as const,
-    createdAt: '2025-09-02T12:00:00Z',
-    updatedAt: '2025-09-05T09:40:00Z',
-  },
-  {
-    id: 'alb-3',
-    title: 'Birthday Bash & Parties',
-    description: 'Surprise birthday party with family and close friends.',
-    coverUrl: 'https://images.unsplash.com/photo-1530103862676-de8c9debad1d?auto=format&fit=crop&w=800&q=80',
-    color: '#8b5cf6',
-    icon: 'PartyPopper',
-    megaUrl: 'https://mega.nz/folder/example#key3',
-    mediaCount: { total: 64, images: 58, videos: 6 },
-    status: 'ACTIVE' as const,
-    createdAt: '2025-11-10T18:20:00Z',
-    updatedAt: '2025-11-11T08:00:00Z',
-  },
-  {
-    id: 'alb-4',
-    title: 'Childhood & Nostalgia',
-    description: 'Scanned old photo albums and vintage home recordings.',
-    coverUrl: 'https://images.unsplash.com/photo-1511895426328-dc8714191300?auto=format&fit=crop&w=800&q=80',
-    color: '#f59e0b',
-    icon: 'Sparkles',
-    megaUrl: 'https://mega.nz/folder/example#key4',
-    mediaCount: { total: 215, images: 200, videos: 15 },
-    status: 'ACTIVE' as const,
-    createdAt: '2026-01-05T14:10:00Z',
-    updatedAt: '2026-01-08T11:25:00Z',
-  },
-];
 
 export const MOCK_MEDIA = [
   {

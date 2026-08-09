@@ -30,51 +30,53 @@ export default function HomePage() {
     try {
       setIsLoading(true);
       const res = await fetch('/api/albums');
-      if (res.ok) {
-        const data = await res.json();
-        const loadedAlbums: Album[] = data.albums || [];
-        setAlbums(loadedAlbums);
+      if (!res.ok) return;
 
-        // Fetch subfolder trees for each album to display folders on homepage
-        const foldersList: DisplayFolder[] = [];
-        for (const alb of loadedAlbums) {
-          try {
-            const mediaRes = await fetch(`/api/albums/${alb.id}/media`);
-            if (mediaRes.ok) {
-              const mediaData = await mediaRes.json();
-              
-              if (mediaData.subfolders && mediaData.subfolders.length > 0) {
-                // Folder has subfolders -> render each subfolder as a card
-                for (const sub of mediaData.subfolders) {
-                  foldersList.push({
-                    albumId: alb.id,
-                    albumTitle: alb.title,
-                    folderName: sub.name,
-                    subfolderPath: sub.path,
-                    itemCount: sub.itemCount || 0,
-                    megaUrl: alb.megaUrl || '',
-                    createdAt: alb.createdAt,
-                  });
-                }
-              } else {
-                // Folder has files directly -> render main album folder
-                foldersList.push({
-                  albumId: alb.id,
-                  albumTitle: alb.title,
-                  folderName: alb.title,
-                  subfolderPath: '',
-                  itemCount: alb.mediaCount.total || 0,
-                  megaUrl: alb.megaUrl || '',
-                  createdAt: alb.createdAt,
-                });
-              }
-            }
-          } catch (e) {
-            console.error('Error fetching subfolders for album:', alb.id, e);
+      const data = await res.json();
+      const loadedAlbums: Album[] = data.albums || [];
+      setAlbums(loadedAlbums);
+
+      // Fetch subfolder trees for all albums in PARALLEL (not sequentially)
+      const results = await Promise.allSettled(
+        loadedAlbums.map(async (alb) => {
+          const mediaRes = await fetch(`/api/albums/${alb.id}/media`);
+          if (!mediaRes.ok) return null;
+          return { alb, mediaData: await mediaRes.json() };
+        })
+      );
+
+      const foldersList: DisplayFolder[] = [];
+      for (const result of results) {
+        if (result.status !== 'fulfilled' || !result.value) continue;
+        const { alb, mediaData } = result.value;
+
+        if (mediaData.subfolders && mediaData.subfolders.length > 0) {
+          // Folder has subfolders → render each subfolder as a card
+          for (const sub of mediaData.subfolders) {
+            foldersList.push({
+              albumId: alb.id,
+              albumTitle: alb.title,
+              folderName: sub.name,
+              subfolderPath: sub.path,
+              itemCount: sub.itemCount || 0,
+              megaUrl: alb.megaUrl || '',
+              createdAt: alb.createdAt,
+            });
           }
+        } else {
+          // Folder has files directly → render as main album folder
+          foldersList.push({
+            albumId: alb.id,
+            albumTitle: alb.title,
+            folderName: alb.title,
+            subfolderPath: '',
+            itemCount: alb.mediaCount.total || 0,
+            megaUrl: alb.megaUrl || '',
+            createdAt: alb.createdAt,
+          });
         }
-        setDisplayFolders(foldersList);
       }
+      setDisplayFolders(foldersList);
     } catch (err) {
       console.error('Failed to load albums:', err);
     } finally {
@@ -117,7 +119,7 @@ export default function HomePage() {
 
   const handleDeleteAlbum = async (id: string) => {
     try {
-      const res = await fetch(`/api/albums?id=${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/albums/${id}`, { method: 'DELETE' });
       if (res.ok) {
         loadData();
       } else {
@@ -186,9 +188,9 @@ export default function HomePage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            {displayFolders.map((folder, idx) => (
+            {displayFolders.map((folder) => (
               <Link
-                key={idx}
+                key={`${folder.albumId}::${folder.subfolderPath || '__root__'}`}
                 href={`/albums/${folder.albumId}${folder.subfolderPath ? `?folder=${encodeURIComponent(folder.subfolderPath)}` : ''}`}
                 className="group"
               >

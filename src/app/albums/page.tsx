@@ -62,7 +62,7 @@ export default function AlbumsPage() {
 
   const handleDeleteAlbum = async (id: string) => {
     try {
-      const res = await fetch(`/api/albums?id=${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/albums/${id}`, { method: 'DELETE' });
       if (res.ok) {
         loadAlbums();
       } else {

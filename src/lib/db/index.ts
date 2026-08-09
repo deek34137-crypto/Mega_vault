@@ -6,32 +6,35 @@ import crypto from 'crypto';
 const dbPath = path.join(process.cwd(), 'megavault.db');
 let localDb: Database.Database | null = null;
 let tursoClient: Client | null = null;
+let tursoInitialized = false; // Guard: run CREATE TABLE only once per process
 
-// Safe Encryption Helper using ENCRYPTION_KEY or COOKIE_SECRET fallback
+// Encryption Helper — requires ENCRYPTION_KEY (64-char hex) or COOKIE_SECRET (min 32 chars)
 function getEncryptionKey(): Buffer {
-  try {
-    const envKey = process.env.ENCRYPTION_KEY?.trim();
-    if (envKey && envKey.length === 64) {
-      return Buffer.from(envKey, 'hex');
+  const envKey = process.env.ENCRYPTION_KEY?.trim();
+  if (envKey) {
+    if (envKey.length !== 64) {
+      throw new Error('[MegaVault] ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes).');
     }
-  } catch (e) {}
+    return Buffer.from(envKey, 'hex');
+  }
 
-  const secret = process.env.COOKIE_SECRET || 'megavault-super-secret-key-32chars!';
+  const secret = process.env.COOKIE_SECRET?.trim();
+  if (!secret || secret.length < 32) {
+    throw new Error(
+      '[MegaVault] COOKIE_SECRET env var is missing or too short (min 32 chars). Set it in Render environment variables.'
+    );
+  }
   return crypto.scryptSync(secret, 'megavault-salt', 32);
 }
 
 function encryptText(text: string): string {
-  try {
-    const key = getEncryptionKey();
-    const iv = crypto.randomBytes(12);
-    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-    let encrypted = cipher.update(text, 'utf8', 'hex');
-    encrypted += cipher.final('hex');
-    const authTag = cipher.getAuthTag().toString('hex');
-    return `${iv.toString('hex')}:${authTag}:${encrypted}`;
-  } catch (err) {
-    return text; // Fallback to raw text if encryption fails
-  }
+  const key = getEncryptionKey();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  let encrypted = cipher.update(text, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  const authTag = cipher.getAuthTag().toString('hex');
+  return `${iv.toString('hex')}:${authTag}:${encrypted}`;
 }
 
 function decryptText(encryptedText: string): string {
@@ -58,11 +61,9 @@ function decryptText(encryptedText: string): string {
 function getTursoClient(): Client | null {
   let rawUrl = process.env.TURSO_DATABASE_URL?.trim();
   if (rawUrl) {
-    // Convert libsql:// to https:// for native HTTP fetch compatibility in Node.js 18+ / Render
     if (rawUrl.startsWith('libsql://')) {
       rawUrl = rawUrl.replace('libsql://', 'https://');
     }
-
     if (!tursoClient) {
       tursoClient = createClient({
         url: rawUrl,
@@ -72,6 +73,28 @@ function getTursoClient(): Client | null {
     return tursoClient;
   }
   return null;
+}
+
+// Run DDL exactly once per process lifecycle (not on every query)
+async function ensureTursoSchema(client: Client): Promise<void> {
+  if (tursoInitialized) return;
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS albums (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT,
+      mega_link TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT
+    );
+  `);
+  // Non-destructive migration: add updated_at if it doesn't exist yet
+  try {
+    await client.execute(`ALTER TABLE albums ADD COLUMN updated_at TEXT;`);
+  } catch {
+    // Column already exists — ignore
+  }
+  tursoInitialized = true;
 }
 
 function getLocalDb(): Database.Database {
@@ -85,24 +108,34 @@ function getLocalDb(): Database.Database {
         title TEXT NOT NULL,
         description TEXT,
         mega_link TEXT NOT NULL,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        updated_at TEXT
       );
     `);
+
+    // Non-destructive migration: add updated_at if it doesn't exist yet
+    try {
+      localDb.exec(`ALTER TABLE albums ADD COLUMN updated_at TEXT;`);
+    } catch {
+      // Column already exists — ignore
+    }
 
     const countStmt = localDb.prepare('SELECT COUNT(*) as count FROM albums');
     const result = countStmt.get() as { count: number };
 
     if (result.count === 0) {
+      const now = new Date().toISOString();
       const insertStmt = localDb.prepare(`
-        INSERT INTO albums (id, title, description, mega_link, created_at)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO albums (id, title, description, mega_link, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
       `);
       insertStmt.run(
         'alb-family',
         'Family Summer Vacation',
         'Beach sunset photos and drone highlight videos',
         encryptText('https://mega.nz/folder/example#key1'),
-        new Date().toISOString()
+        now,
+        now
       );
     }
   }
@@ -115,21 +148,14 @@ export interface DbAlbum {
   description?: string | null;
   mega_link: string;
   created_at: string;
+  updated_at?: string | null;
 }
 
 export async function getAllAlbums(): Promise<DbAlbum[]> {
   const client = getTursoClient();
   if (client) {
     try {
-      await client.execute(`
-        CREATE TABLE IF NOT EXISTS albums (
-          id TEXT PRIMARY KEY,
-          title TEXT NOT NULL,
-          description TEXT,
-          mega_link TEXT NOT NULL,
-          created_at TEXT NOT NULL
-        );
-      `);
+      await ensureTursoSchema(client);
       const res = await client.execute('SELECT * FROM albums ORDER BY created_at DESC');
       return res.rows.map((row: any) => ({
         id: row.id,
@@ -137,6 +163,7 @@ export async function getAllAlbums(): Promise<DbAlbum[]> {
         description: row.description,
         mega_link: decryptText(row.mega_link),
         created_at: row.created_at,
+        updated_at: row.updated_at,
       }));
     } catch (e) {
       console.error('Turso DB getAllAlbums error:', e);
@@ -156,6 +183,7 @@ export async function getAlbumById(id: string): Promise<DbAlbum | undefined> {
   const client = getTursoClient();
   if (client) {
     try {
+      await ensureTursoSchema(client);
       const res = await client.execute({
         sql: 'SELECT * FROM albums WHERE id = ?',
         args: [id],
@@ -168,6 +196,7 @@ export async function getAlbumById(id: string): Promise<DbAlbum | undefined> {
         description: row.description,
         mega_link: decryptText(row.mega_link),
         created_at: row.created_at,
+        updated_at: row.updated_at,
       };
     } catch (e) {
       console.error('Turso DB getAlbumById error:', e);
@@ -184,34 +213,30 @@ export async function getAlbumById(id: string): Promise<DbAlbum | undefined> {
   };
 }
 
-export async function createAlbum(album: { id: string; title: string; description?: string; megaLink: string }): Promise<DbAlbum> {
-  const createdAt = new Date().toISOString();
+export async function createAlbum(album: {
+  id: string;
+  title: string;
+  description?: string;
+  megaLink: string;
+}): Promise<DbAlbum> {
+  const now = new Date().toISOString();
   const encryptedLink = encryptText(album.megaLink);
 
   const client = getTursoClient();
   if (client) {
     try {
-      await client.execute(`
-        CREATE TABLE IF NOT EXISTS albums (
-          id TEXT PRIMARY KEY,
-          title TEXT NOT NULL,
-          description TEXT,
-          mega_link TEXT NOT NULL,
-          created_at TEXT NOT NULL
-        );
-      `);
-
+      await ensureTursoSchema(client);
       await client.execute({
-        sql: `INSERT INTO albums (id, title, description, mega_link, created_at) VALUES (?, ?, ?, ?, ?)`,
-        args: [album.id, album.title, album.description || null, encryptedLink, createdAt],
+        sql: `INSERT INTO albums (id, title, description, mega_link, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+        args: [album.id, album.title, album.description || null, encryptedLink, now, now],
       });
-
       return {
         id: album.id,
         title: album.title,
         description: album.description || null,
         mega_link: album.megaLink,
-        created_at: createdAt,
+        created_at: now,
+        updated_at: now,
       };
     } catch (e) {
       console.error('Turso DB createAlbum error:', e);
@@ -220,17 +245,18 @@ export async function createAlbum(album: { id: string; title: string; descriptio
 
   const db = getLocalDb();
   const statement = db.prepare(`
-    INSERT INTO albums (id, title, description, mega_link, created_at)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO albums (id, title, description, mega_link, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
   `);
-  statement.run(album.id, album.title, album.description || null, encryptedLink, createdAt);
+  statement.run(album.id, album.title, album.description || null, encryptedLink, now, now);
 
   return {
     id: album.id,
     title: album.title,
     description: album.description || null,
     mega_link: album.megaLink,
-    created_at: createdAt,
+    created_at: now,
+    updated_at: now,
   };
 }
 
@@ -238,12 +264,15 @@ export async function deleteAlbum(id: string): Promise<boolean> {
   const client = getTursoClient();
   if (client) {
     try {
+      await ensureTursoSchema(client);
       const res = await client.execute({
         sql: 'DELETE FROM albums WHERE id = ?',
         args: [id],
       });
       return res.rowsAffected > 0;
-    } catch (e) {}
+    } catch (e) {
+      console.error('Turso DB deleteAlbum error:', e);
+    }
   }
 
   const db = getLocalDb();

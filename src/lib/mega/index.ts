@@ -18,6 +18,17 @@ export interface MegaFolderResult {
   };
 }
 
+// Global in-memory cache for loaded MEGA root folder objects
+interface CachedRootNode {
+  rootFolder: any;
+  timestamp: number;
+  handleMap: Map<string, any>;
+}
+
+const megaRootCache = new Map<string, CachedRootNode>();
+const pendingRootPromises = new Map<string, Promise<CachedRootNode>>();
+const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes in-memory cache
+
 export function parseMegaUrl(url: string): { folderId: string; key: string } | null {
   try {
     const parsed = new URL(url);
@@ -44,6 +55,88 @@ export function parseMegaUrl(url: string): { folderId: string; key: string } | n
 // Clean string for robust fuzzy matching between folder names
 function normalizeName(str: string): string {
   return str ? str.trim().toLowerCase().replace(/[^a-z0-9]/g, '') : '';
+}
+
+// Build a flat lookup map of file handles to nodes for instant stream retrieval
+function buildHandleMap(node: any, map = new Map<string, any>()): Map<string, any> {
+  if (!node) return map;
+
+  if (node.downloadId) {
+    map.set(node.downloadId, node);
+  }
+  if (node.name) {
+    map.set(node.name, node);
+  }
+
+  if (node.children && Array.isArray(node.children)) {
+    for (const child of node.children) {
+      buildHandleMap(child, map);
+    }
+  }
+
+  return map;
+}
+
+// Fetch or reuse cached root MEGA folder node with Promise deduplication
+async function getOrFetchRootFolder(megaUrl: string, forceRefresh = false): Promise<CachedRootNode> {
+  if (!forceRefresh) {
+    const cached = megaRootCache.get(megaUrl);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+      return cached;
+    }
+  }
+
+  if (pendingRootPromises.has(megaUrl) && !forceRefresh) {
+    return pendingRootPromises.get(megaUrl)!;
+  }
+
+  const fetchPromise = (async () => {
+    try {
+      const rootFolder = MegaFile.fromURL(megaUrl);
+
+      // Promisified loadAttributes with timeout resilience
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error('MEGA loadAttributes connection timed out'));
+        }, 45000);
+
+        rootFolder.loadAttributes((err: any, folder: any) => {
+          clearTimeout(timeout);
+          if (err) reject(err);
+          else resolve(folder);
+        });
+      });
+
+      const handleMap = buildHandleMap(rootFolder);
+      const entry: CachedRootNode = {
+        rootFolder,
+        timestamp: Date.now(),
+        handleMap,
+      };
+
+      megaRootCache.set(megaUrl, entry);
+      return entry;
+    } finally {
+      pendingRootPromises.delete(megaUrl);
+    }
+  })();
+
+  pendingRootPromises.set(megaUrl, fetchPromise);
+  return fetchPromise;
+}
+
+// Look up target file node for stream requests without re-indexing MEGA
+export async function getMegaFileByHandle(albumId: string, megaUrl: string, handle: string): Promise<any | null> {
+  try {
+    const cachedRoot = await getOrFetchRootFolder(megaUrl);
+    if (cachedRoot && cachedRoot.handleMap.has(handle)) {
+      return cachedRoot.handleMap.get(handle);
+    }
+    return null;
+  } catch (err) {
+    console.error('Error looking up Mega file by handle:', err);
+    return null;
+  }
 }
 
 export async function fetchMegaFolderMedia(
@@ -77,44 +170,40 @@ export async function fetchMegaFolderMedia(
   }
 
   try {
-    const rootFolder = MegaFile.fromURL(megaUrl);
-    await rootFolder.loadAttributes();
+    const cachedRoot = await getOrFetchRootFolder(megaUrl, forceRefresh);
+    const rootFolder = cachedRoot.rootFolder;
 
     let targetNode: any = rootFolder;
 
-    // Robust Flexible Subfolder Navigation
+    // Subfolder Navigation over loaded in-memory tree
     if (subfolderPath) {
-      const pathParts = subfolderPath.split('/').map((p) => p.trim()).filter(Boolean);
+      const decodedPath = decodeURIComponent(subfolderPath);
+      const pathParts = decodedPath.split('/').map((p) => p.trim()).filter(Boolean);
 
       for (const part of pathParts) {
-        if (!targetNode) break;
-
-        if (targetNode.directory && (!targetNode.children || targetNode.children.length === 0)) {
-          try {
-            await targetNode.loadAttributes();
-          } catch (e) {}
+        if (!targetNode || !targetNode.children || !Array.isArray(targetNode.children)) {
+          targetNode = null;
+          break;
         }
 
-        if (targetNode.children && Array.isArray(targetNode.children)) {
-          const targetNorm = normalizeName(part);
-          const match = targetNode.children.find((c: any) => {
-            if (!c.directory) return false;
-            const cNorm = normalizeName(c.name || '');
-            return cNorm === targetNorm || c.name?.trim() === part;
-          });
+        const targetNorm = normalizeName(part);
+        const match = targetNode.children.find((c: any) => {
+          if (!c.directory) return false;
+          const cName = (c.name || '').trim();
+          return (
+            cName === part ||
+            cName.toLowerCase() === part.toLowerCase() ||
+            normalizeName(cName) === targetNorm
+          );
+        });
 
-          if (match) {
-            targetNode = match;
-          }
+        if (match) {
+          targetNode = match;
+        } else {
+          targetNode = null;
+          break;
         }
       }
-    }
-
-    // Ensure final target folder node attributes are loaded
-    if (targetNode && targetNode.directory && (!targetNode.children || targetNode.children.length === 0)) {
-      try {
-        await targetNode.loadAttributes();
-      } catch (e) {}
     }
 
     const items: MediaItem[] = [];
@@ -127,12 +216,17 @@ export async function fetchMegaFolderMedia(
         if (child.directory) {
           const childName = child.name || 'Subfolder';
           const fullSubPath = subfolderPath ? `${subfolderPath}/${childName}` : childName;
-          const childCount = child.children ? child.children.length : 0;
+
+          // Count only files (non-directories) in immediate children if loaded
+          let childFileCount = 0;
+          if (child.children && Array.isArray(child.children)) {
+            childFileCount = child.children.filter((c: any) => !c.directory).length;
+          }
 
           detectedSubfolders.push({
             name: childName,
             path: fullSubPath,
-            itemCount: childCount,
+            itemCount: childFileCount,
           });
         } else {
           const rawName = child.name || 'unnamed_file';
@@ -190,6 +284,9 @@ export async function fetchMegaFolderMedia(
 }
 
 export function clearMegaFolderCache(albumId: string, megaUrl: string) {
-  const cacheKey = `mega_media_${albumId}_${megaUrl}_root`;
-  mediaCache.clear(cacheKey);
+  megaRootCache.delete(megaUrl);
+  pendingRootPromises.delete(megaUrl);
+  // Clear all cache entries for this album (root + every subfolder path)
+  const prefix = `mega_media_${albumId}_${megaUrl}_`;
+  mediaCache.clearByPrefix(prefix);
 }

@@ -44,14 +44,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [isMuted, setIsMuted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showOverlay, setShowOverlay] = useState(true);
-  const [overlayTimeout, setOverlayTimeout] = useState<NodeJS.Timeout | null>(null);
+  const overlayTimeout = useRef<NodeJS.Timeout | null>(null);
 
   // Auto hide control overlay after 3 seconds of inactivity
   const handleMouseMove = () => {
     setShowOverlay(true);
-    if (overlayTimeout) clearTimeout(overlayTimeout);
-    const timeout = setTimeout(() => setShowOverlay(false), 3000);
-    setOverlayTimeout(timeout);
+    if (overlayTimeout.current) clearTimeout(overlayTimeout.current);
+    overlayTimeout.current = setTimeout(() => setShowOverlay(false), 3000);
   };
 
   const togglePlay = useCallback(() => {
@@ -91,11 +90,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (!containerRef.current) return;
     if (!document.fullscreenElement) {
       containerRef.current.requestFullscreen().catch((err) => console.error(err));
-      setIsFullscreen(true);
     } else {
       document.exitFullscreen().catch((err) => console.error(err));
-      setIsFullscreen(false);
     }
+    // State is updated via the fullscreenchange listener below — not here
+  }, []);
+
+  // Sync fullscreen state from the browser event (reliable on all browsers)
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
   }, []);
 
   // Keyboard Shortcuts Handler

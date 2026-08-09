@@ -178,21 +178,35 @@ function AlbumContent() {
   return (
     <PageContainer>
       {/* Back Navigation & Breadcrumb */}
-      <div className="flex items-center space-x-2 text-xs font-semibold text-zinc-400 mb-6">
+      <div className="flex items-center space-x-2 text-xs font-semibold text-zinc-400 mb-6 flex-wrap gap-y-1">
         <Link href="/" className="hover:text-white flex items-center space-x-1">
-          <ArrowLeft className="w-4 h-4" />
+          <ArrowLeft className="w-4 h-4 text-zinc-400" />
           <span>Homepage</span>
         </Link>
-        {folderParam && (
-          <>
-            <span>/</span>
-            <Link href={`/albums/${albumId}`} className="hover:text-white">
-              {album?.title || 'Album'}
-            </Link>
-            <span>/</span>
-            <span className="text-white font-mono">{folderParam}</span>
-          </>
-        )}
+        <span>/</span>
+        <Link href={`/albums/${albumId}`} className="hover:text-white">
+          {album?.title || 'Album'}
+        </Link>
+        {folderParam &&
+          folderParam.split('/').map((seg, idx, arr) => {
+            const pathUpToSegment = arr.slice(0, idx + 1).join('/');
+            const isLast = idx === arr.length - 1;
+            return (
+              <React.Fragment key={idx}>
+                <span>/</span>
+                {isLast ? (
+                  <span className="text-white font-mono">{seg}</span>
+                ) : (
+                  <Link
+                    href={`/albums/${albumId}?folder=${encodeURIComponent(pathUpToSegment)}`}
+                    className="hover:text-white font-mono"
+                  >
+                    {seg}
+                  </Link>
+                )}
+              </React.Fragment>
+            );
+          })}
       </div>
 
       {/* Album Header Banner */}
@@ -239,8 +253,8 @@ function AlbumContent() {
         <div className="mb-8">
           <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-3">Subfolders</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {subfolders.map((sub, i) => (
-              <Link key={i} href={`/albums/${albumId}?folder=${encodeURIComponent(sub.path)}`}>
+            {subfolders.map((sub) => (
+              <Link key={sub.path} href={`/albums/${albumId}?folder=${encodeURIComponent(sub.path)}`}>
                 <div className="glass-panel glass-panel-hover p-4 rounded-2xl border border-zinc-800/80 flex items-center justify-between group">
                   <div className="flex items-center space-x-3">
                     <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
@@ -325,9 +339,17 @@ function AlbumContent() {
       ) : (
         <>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            {visibleMedia.map((media, idx) => (
-              <MediaCard key={media.id} media={media} onClick={() => setSelectedIndex(idx)} />
-            ))}
+            {visibleMedia.map((media) => {
+              // Find the true index in filteredMedia (not the paginated slice index)
+              const filteredIdx = filteredMedia.findIndex((m) => m.id === media.id);
+              return (
+                <MediaCard
+                  key={media.id}
+                  media={media}
+                  onClick={() => setSelectedIndex(filteredIdx)}
+                />
+              );
+            })}
           </div>
 
           {/* Infinite Scroll Sentinel */}
@@ -383,6 +405,16 @@ function AlbumContent() {
                   src={selectedMedia.thumbnailUrl}
                   alt={selectedMedia.fileName}
                   className="max-h-[75vh] object-contain select-none"
+                />
+              ) : selectedMedia.streamUrl ? (
+                // Load real image via the stream API endpoint
+                <img
+                  src={selectedMedia.streamUrl}
+                  alt={selectedMedia.fileName}
+                  className="max-h-[75vh] object-contain select-none"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = 'none';
+                  }}
                 />
               ) : (
                 <div className="p-16 text-zinc-500 flex flex-col items-center">
