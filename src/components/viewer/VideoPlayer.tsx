@@ -202,14 +202,26 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         preload="auto"
         src={media.streamUrl}
         onClick={togglePlay}
-        onPlay={() => setIsPlaying(true)}
+        onPlay={() => {
+          setIsPlaying(true);
+          setIsBuffering(false);
+        }}
         onPause={() => setIsPlaying(false)}
         onWaiting={() => setIsBuffering(true)}
         onPlaying={() => setIsBuffering(false)}
         onSeeking={() => setIsBuffering(true)}
         onSeeked={() => setIsBuffering(false)}
         onCanPlay={() => setIsBuffering(false)}
-        onTimeUpdate={() => videoRef.current && setCurrentTime(videoRef.current.currentTime)}
+        onCanPlayThrough={() => setIsBuffering(false)}
+        onLoadedData={() => setIsBuffering(false)}
+        onTimeUpdate={() => {
+          if (videoRef.current) {
+            setCurrentTime(videoRef.current.currentTime);
+            if (isBuffering && !videoRef.current.paused) {
+              setIsBuffering(false);
+            }
+          }
+        }}
         onLoadedMetadata={() => videoRef.current && setDuration(videoRef.current.duration)}
         onEnded={() => setIsPlaying(false)}
         className="max-h-screen w-full object-contain cursor-pointer"

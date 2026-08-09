@@ -188,6 +188,23 @@ function AlbumContent() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedIndex, selectedMedia, handlePrev, handleNext]);
 
+  // Preload adjacent images in background for instant 0ms Lightbox switching
+  useEffect(() => {
+    if (selectedIndex === null || filteredMedia.length === 0) return;
+
+    const nextMedia = filteredMedia[(selectedIndex + 1) % filteredMedia.length];
+    const prevMedia = filteredMedia[(selectedIndex - 1 + filteredMedia.length) % filteredMedia.length];
+
+    if (nextMedia && nextMedia.mediaType === 'IMAGE' && nextMedia.streamUrl) {
+      const img = new Image();
+      img.src = nextMedia.streamUrl;
+    }
+    if (prevMedia && prevMedia.mediaType === 'IMAGE' && prevMedia.streamUrl) {
+      const img = new Image();
+      img.src = prevMedia.streamUrl;
+    }
+  }, [selectedIndex, filteredMedia]);
+
   return (
     <PageContainer>
       {/* Back Navigation & Breadcrumb */}

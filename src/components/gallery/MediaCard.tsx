@@ -31,6 +31,8 @@ function getGradientFromFileName(name: string): string {
 export const MediaCard: React.FC<MediaCardProps> = ({ media, onClick }) => {
   const cardRef = useRef<HTMLDivElement>(null);
   const [isVisible, setIsVisible] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [imageError, setImageError] = useState(false);
   const [videoFrameLoaded, setVideoFrameLoaded] = useState(false);
   const [videoError, setVideoError] = useState(false);
 
@@ -38,7 +40,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({ media, onClick }) => {
   const ext = media.fileName.split('.').pop()?.toUpperCase() || (isVideo ? 'VIDEO' : 'IMG');
   const gradient = getGradientFromFileName(media.fileName);
 
-  // Lazy load video snapshot ONLY when card enters browser viewport
+  // Lazy load media ONLY when card enters browser viewport
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
@@ -67,14 +69,41 @@ export const MediaCard: React.FC<MediaCardProps> = ({ media, onClick }) => {
     >
       {/* Media Cover / Preview Container */}
       <div className="relative aspect-square w-full bg-zinc-900 overflow-hidden flex flex-col justify-between">
-        {media.thumbnailUrl ? (
-          <img
-            src={media.thumbnailUrl}
-            alt={media.fileName}
-            loading="lazy"
-            decoding="async"
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out"
-          />
+        {!isVideo && isVisible && media.streamUrl && !imageError ? (
+          /* Lazy loaded image from fast stream cache */
+          <div className="relative w-full h-full bg-zinc-950 overflow-hidden">
+            <img
+              src={media.thumbnailUrl || media.streamUrl}
+              alt={media.fileName}
+              loading="lazy"
+              decoding="async"
+              onLoad={() => setImageLoaded(true)}
+              onError={() => setImageError(true)}
+              className={`w-full h-full object-cover group-hover:scale-105 transition-all duration-500 ease-out ${
+                imageLoaded ? 'opacity-100' : 'opacity-0'
+              }`}
+            />
+
+            {!imageLoaded && (
+              <div className={`absolute inset-0 bg-gradient-to-br ${gradient} p-3.5 flex flex-col justify-between`}>
+                <div className="flex items-center justify-between z-10">
+                  <span className="px-2 py-0.5 rounded-md bg-black/60 backdrop-blur-md text-[10px] font-extrabold text-zinc-200 border border-white/10 uppercase flex items-center gap-1">
+                    <ImageIcon className="w-3 h-3 text-blue-400" />
+                    <span>{ext}</span>
+                  </span>
+                  <span className="text-[10px] font-mono text-zinc-400 bg-black/40 px-1.5 py-0.5 rounded">
+                    {formatBytes(media.size)}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            <div className="absolute bottom-2 left-2 right-2 z-10 bg-black/75 backdrop-blur-md p-2 rounded-xl border border-white/10">
+              <p className="text-xs font-semibold text-white font-mono truncate leading-snug" title={media.fileName}>
+                {media.fileName}
+              </p>
+            </div>
+          </div>
         ) : isVideo && isVisible && media.streamUrl && !videoError ? (
           /* Lazy HTML5 Video First Frame Snapshot (#t=1.0) when scrolled into view */
           <div className="relative w-full h-full bg-zinc-950 overflow-hidden">
