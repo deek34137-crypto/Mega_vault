@@ -25,6 +25,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const albumId = searchParams.get('albumId');
   const handle = searchParams.get('handle');
+  const isDownload = searchParams.get('download') === 'true';
 
   if (!albumId || !handle) {
     return NextResponse.json({ error: 'Album ID and File handle required' }, { status: 400 });
@@ -49,7 +50,7 @@ export async function GET(request: Request) {
     }
 
     const fileSize = targetFile.size || 0;
-    const fileName = targetFile.name || 'video.mp4';
+    const fileName = targetFile.name || 'file';
     const ext = fileName.split('.').pop()?.toLowerCase() || '';
 
     let mimeType = 'application/octet-stream';
@@ -63,6 +64,22 @@ export async function GET(request: Request) {
     else if (ext === 'gif') mimeType = 'image/gif';
     else if (ext === 'heic') mimeType = 'image/heic';
     else if (ext === 'svg') mimeType = 'image/svg+xml';
+
+    // ─── DOWNLOAD MODE: stream full file with attachment header ───
+    if (isDownload) {
+      const nodeStream = targetFile.download();
+      const webStream = Readable.toWeb(nodeStream);
+      return new Response(webStream as any, {
+        status: 200,
+        headers: {
+          'Content-Type': mimeType,
+          'Content-Length': fileSize > 0 ? fileSize.toString() : '',
+          'Content-Disposition': `attachment; filename="${encodeURIComponent(fileName)}"`,
+          'Cache-Control': 'public, max-age=31536000, immutable',
+          'Accept-Ranges': 'bytes',
+        },
+      });
+    }
 
     // Fast path for Images: Serve cached buffer from memory in milliseconds
     const isImage = mimeType.startsWith('image/');

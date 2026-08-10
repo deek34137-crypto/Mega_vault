@@ -33,8 +33,6 @@ export const MediaCard: React.FC<MediaCardProps> = ({ media, onClick }) => {
   const [isVisible, setIsVisible] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
-  const [videoFrameLoaded, setVideoFrameLoaded] = useState(false);
-  const [videoError, setVideoError] = useState(false);
 
   const isVideo = media.mediaType === 'VIDEO';
   const ext = media.fileName.split('.').pop()?.toUpperCase() || (isVideo ? 'VIDEO' : 'IMG');
@@ -104,41 +102,30 @@ export const MediaCard: React.FC<MediaCardProps> = ({ media, onClick }) => {
               </p>
             </div>
           </div>
-        ) : isVideo && isVisible && media.streamUrl && !videoError ? (
-          /* Lazy HTML5 Video First Frame Snapshot (#t=1.0) when scrolled into view */
-          <div className="relative w-full h-full bg-zinc-950 overflow-hidden">
-            <video
-              src={`${media.streamUrl}#t=1.0`}
-              preload="metadata"
-              muted
-              playsInline
-              onLoadedData={() => setVideoFrameLoaded(true)}
-              onError={() => setVideoError(true)}
-              className={`w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out pointer-events-none ${
-                videoFrameLoaded ? 'opacity-100' : 'opacity-0'
-              }`}
-            />
+        ) : isVideo ? (
+          /* Static gradient poster — zero stream requests, zero buffering hit on gallery load */
+          <div className="relative w-full h-full overflow-hidden">
+            <div className={`absolute inset-0 bg-gradient-to-br ${gradient} opacity-90`} />
 
-            {!videoFrameLoaded && (
-              <div className={`absolute inset-0 bg-gradient-to-br ${gradient} p-3.5 flex flex-col justify-between`}>
-                <div className="flex items-center justify-between z-10">
-                  <span className="px-2 py-0.5 rounded-md bg-black/60 backdrop-blur-md text-[10px] font-extrabold text-zinc-200 border border-white/10 uppercase flex items-center gap-1">
-                    <Film className="w-3 h-3 text-purple-400" />
-                    <span>{ext}</span>
-                  </span>
-                  <span className="text-[10px] font-mono text-zinc-400 bg-black/40 px-1.5 py-0.5 rounded">
-                    {formatBytes(media.size)}
-                  </span>
-                </div>
-              </div>
-            )}
-
+            {/* Play button overlay */}
             <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/10 transition-colors">
               <div className="w-12 h-12 rounded-full bg-blue-600/90 text-white flex items-center justify-center backdrop-blur-md group-hover:scale-110 group-hover:bg-blue-500 transition-all shadow-xl shadow-blue-600/40 border border-white/20">
                 <Play className="w-5 h-5 fill-white translate-x-0.5" />
               </div>
             </div>
 
+            {/* Top badge row */}
+            <div className="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between z-10">
+              <span className="px-2 py-0.5 rounded-md bg-black/60 backdrop-blur-md text-[10px] font-extrabold text-zinc-200 border border-white/10 uppercase flex items-center gap-1">
+                <Film className="w-3 h-3 text-purple-400" />
+                <span>{ext}</span>
+              </span>
+              <span className="text-[10px] font-mono text-zinc-400 bg-black/40 px-1.5 py-0.5 rounded">
+                {formatBytes(media.size)}
+              </span>
+            </div>
+
+            {/* Bottom filename */}
             <div className="absolute bottom-2 left-2 right-2 z-10 bg-black/75 backdrop-blur-md p-2 rounded-xl border border-white/10">
               <p className="text-xs font-semibold text-white font-mono truncate leading-snug" title={media.fileName}>
                 {media.fileName}
@@ -146,7 +133,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({ media, onClick }) => {
             </div>
           </div>
         ) : (
-          /* Fallback Poster Card */
+          /* Fallback Poster Card (before visible / image failed) */
           <div className={`w-full h-full bg-gradient-to-br ${gradient} p-3.5 flex flex-col justify-between relative overflow-hidden`}>
             <div className="flex items-center justify-between z-10">
               <span className="px-2 py-0.5 rounded-md bg-black/60 backdrop-blur-md text-[10px] font-extrabold text-zinc-200 border border-white/10 uppercase flex items-center gap-1">
@@ -158,14 +145,6 @@ export const MediaCard: React.FC<MediaCardProps> = ({ media, onClick }) => {
               </span>
             </div>
 
-            {isVideo && (
-              <div className="my-auto mx-auto z-10">
-                <div className="w-12 h-12 rounded-full bg-blue-600/90 text-white flex items-center justify-center backdrop-blur-md group-hover:scale-110 group-hover:bg-blue-500 transition-all shadow-xl shadow-blue-600/40 border border-white/20">
-                  <Play className="w-5 h-5 fill-white translate-x-0.5" />
-                </div>
-              </div>
-            )}
-
             <div className="z-10 bg-black/75 backdrop-blur-md p-2 rounded-xl border border-white/10 mt-auto">
               <p className="text-xs font-semibold text-white font-mono truncate leading-snug" title={media.fileName}>
                 {media.fileName}
@@ -174,17 +153,6 @@ export const MediaCard: React.FC<MediaCardProps> = ({ media, onClick }) => {
           </div>
         )}
       </div>
-
-      {media.thumbnailUrl && (
-        <div className="p-2.5 bg-zinc-950/90 border-t border-zinc-800/80 flex items-center justify-between text-xs">
-          <span className="truncate text-zinc-200 font-mono text-[11px]" title={media.fileName}>
-            {media.fileName}
-          </span>
-          <span className="text-[10px] text-zinc-400 font-mono flex-shrink-0 ml-2">
-            {formatBytes(media.size)}
-          </span>
-        </div>
-      )}
     </motion.div>
   );
 };

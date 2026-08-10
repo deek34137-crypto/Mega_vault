@@ -188,21 +188,24 @@ function AlbumContent() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedIndex, selectedMedia, handlePrev, handleNext]);
 
-  // Preload adjacent images in background for instant 0ms Lightbox switching
+  // Preload adjacent images in background for instant 0ms Lightbox switching (2 ahead + 2 behind)
   useEffect(() => {
     if (selectedIndex === null || filteredMedia.length === 0) return;
 
-    const nextMedia = filteredMedia[(selectedIndex + 1) % filteredMedia.length];
-    const prevMedia = filteredMedia[(selectedIndex - 1 + filteredMedia.length) % filteredMedia.length];
+    const toPreload = [
+      filteredMedia[(selectedIndex + 1) % filteredMedia.length],
+      filteredMedia[(selectedIndex + 2) % filteredMedia.length],
+      filteredMedia[(selectedIndex - 1 + filteredMedia.length) % filteredMedia.length],
+      filteredMedia[(selectedIndex - 2 + filteredMedia.length) % filteredMedia.length],
+    ];
 
-    if (nextMedia && nextMedia.mediaType === 'IMAGE' && nextMedia.streamUrl) {
-      const img = new Image();
-      img.src = nextMedia.streamUrl;
-    }
-    if (prevMedia && prevMedia.mediaType === 'IMAGE' && prevMedia.streamUrl) {
-      const img = new Image();
-      img.src = prevMedia.streamUrl;
-    }
+    toPreload.forEach((m) => {
+      if (m && m.mediaType === 'IMAGE' && m.streamUrl) {
+        const img = new Image();
+        img.fetchPriority = 'low';
+        img.src = m.streamUrl;
+      }
+    });
   }, [selectedIndex, filteredMedia]);
 
   return (
@@ -404,7 +407,7 @@ function AlbumContent() {
         />
       )}
 
-      {/* Image Lightbox Viewer Modal */}
+      {/* Fullscreen Image Viewer Modal */}
       {selectedMedia && selectedMedia.mediaType === 'IMAGE' && (
         <div
           onTouchStart={(e) => {
@@ -422,75 +425,88 @@ function AlbumContent() {
             touchStartX.current = null;
             touchStartY.current = null;
           }}
-          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/95 backdrop-blur-2xl select-none"
+          className="fixed inset-0 z-50 bg-black select-none"
+          style={{ animation: 'fadeInScale 0.22s cubic-bezier(0.22,1,0.36,1) both' }}
         >
-          <button
+          <style>{`
+            @keyframes fadeInScale {
+              from { opacity: 0; transform: scale(0.96); }
+              to   { opacity: 1; transform: scale(1); }
+            }
+          `}</style>
+
+          {/* Full viewport image — covers 100% screen */}
+          <div
+            className="absolute inset-0 flex items-center justify-center cursor-zoom-in"
             onClick={() => setSelectedIndex(null)}
-            className="absolute top-3 right-3 sm:top-4 sm:right-4 p-2.5 sm:p-3 rounded-full bg-zinc-900/80 text-zinc-400 hover:text-white border border-zinc-700 z-20"
           >
-            <X className="w-5 h-5 sm:w-6 sm:h-6" />
-          </button>
+            <img
+              key={selectedMedia.id}
+              src={selectedMedia.streamUrl || selectedMedia.thumbnailUrl || ''}
+              alt={selectedMedia.fileName}
+              fetchPriority="high"
+              decoding="async"
+              onClick={(e) => e.stopPropagation()}
+              className="max-w-full max-h-full w-full h-full object-contain select-none"
+              style={{ animation: 'fadeInScale 0.18s ease both' }}
+              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+            />
+          </div>
 
-          <button
-            onClick={handlePrev}
-            className="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 p-2.5 sm:p-3 rounded-full bg-zinc-900/80 text-zinc-300 hover:text-white border border-zinc-700/80 hover:bg-zinc-800 z-20 transition-all shadow-xl"
-          >
-            <ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" />
-          </button>
-
-          <button
-            onClick={handleNext}
-            className="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 p-2.5 sm:p-3 rounded-full bg-zinc-900/80 text-zinc-300 hover:text-white border border-zinc-700/80 hover:bg-zinc-800 z-20 transition-all shadow-xl"
-          >
-            <ChevronRight className="w-5 h-5 sm:w-6 sm:h-6" />
-          </button>
-
-          <div className="max-w-5xl w-full flex flex-col items-center z-10">
-            <div className="relative w-full h-[75vh] max-h-[80vh] rounded-2xl overflow-hidden mb-4 border border-zinc-800 bg-black flex items-center justify-center shadow-2xl">
-              {selectedMedia.thumbnailUrl ? (
-                <img
-                  src={selectedMedia.thumbnailUrl}
-                  alt={selectedMedia.fileName}
-                  className="w-full h-full object-contain p-2 select-none"
-                />
-              ) : selectedMedia.streamUrl ? (
-                // Load real image via the stream API endpoint
-                <img
-                  src={selectedMedia.streamUrl}
-                  alt={selectedMedia.fileName}
-                  className="w-full h-full object-contain p-2 select-none"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = 'none';
-                  }}
-                />
-              ) : (
-                <div className="p-16 text-zinc-500 flex flex-col items-center">
-                  <ImageIcon className="w-16 h-16 mb-2 text-blue-500" />
-                  <span className="font-mono text-sm text-zinc-300 mb-1">{selectedMedia.fileName}</span>
-                </div>
-              )}
+          {/* Top overlay: filename + close + download */}
+          <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 py-3 bg-gradient-to-b from-black/80 to-transparent pointer-events-none">
+            <div className="pointer-events-auto">
+              <p className="text-sm font-bold text-white font-mono truncate max-w-[60vw]">{selectedMedia.fileName}</p>
+              <p className="text-xs text-zinc-400">
+                {formatBytes(selectedMedia.size)} &nbsp;•&nbsp; {selectedIndex! + 1} / {filteredMedia.length}
+              </p>
             </div>
-
-            <div className="w-full max-w-xl glass-panel p-4 rounded-2xl border border-zinc-800 flex items-center justify-between">
-              <div>
-                <h4 className="text-sm font-bold text-white font-mono">{selectedMedia.fileName}</h4>
-                <p className="text-xs text-zinc-400">
-                  {formatBytes(selectedMedia.size)} • {selectedMedia.mediaType} • {selectedIndex! + 1} of {filteredMedia.length}
-                </p>
-              </div>
-
-              <div className="flex items-center space-x-2">
-                <a
-                  href={selectedMedia.streamUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-blue-600/20"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>Open Image</span>
-                </a>
-              </div>
+            <div className="flex items-center gap-2 pointer-events-auto">
+              <a
+                href={`${selectedMedia.streamUrl}&download=true`}
+                download={selectedMedia.fileName}
+                onClick={(e) => e.stopPropagation()}
+                title="Download image"
+                className="p-2.5 rounded-full bg-zinc-900/80 hover:bg-emerald-600 text-zinc-300 hover:text-white border border-zinc-700/70 transition-all backdrop-blur-md"
+              >
+                <Download className="w-5 h-5" />
+              </a>
+              <button
+                onClick={() => setSelectedIndex(null)}
+                className="p-2.5 rounded-full bg-zinc-900/80 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700/70 transition-all backdrop-blur-md"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
+          </div>
+
+          {/* Left arrow */}
+          <button
+            onClick={(e) => { e.stopPropagation(); handlePrev(); }}
+            className="absolute left-3 sm:left-5 top-1/2 -translate-y-1/2 z-20 p-3 rounded-full bg-zinc-900/80 hover:bg-blue-600 text-zinc-200 hover:text-white border border-zinc-700/80 hover:border-blue-500 backdrop-blur-md transition-all shadow-2xl"
+          >
+            <ChevronLeft className="w-6 h-6" />
+          </button>
+
+          {/* Right arrow */}
+          <button
+            onClick={(e) => { e.stopPropagation(); handleNext(); }}
+            className="absolute right-3 sm:right-5 top-1/2 -translate-y-1/2 z-20 p-3 rounded-full bg-zinc-900/80 hover:bg-blue-600 text-zinc-200 hover:text-white border border-zinc-700/80 hover:border-blue-500 backdrop-blur-md transition-all shadow-2xl"
+          >
+            <ChevronRight className="w-6 h-6" />
+          </button>
+
+          {/* Bottom dot counter */}
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5">
+            {filteredMedia.filter(m => m.mediaType === 'IMAGE').length <= 20 &&
+              filteredMedia.map((m, idx) => m.mediaType === 'IMAGE' ? (
+                <button
+                  key={m.id}
+                  onClick={(e) => { e.stopPropagation(); setSelectedIndex(idx); }}
+                  className={`w-1.5 h-1.5 rounded-full transition-all ${idx === selectedIndex ? 'bg-white w-4' : 'bg-zinc-600 hover:bg-zinc-400'}`}
+                />
+              ) : null)
+            }
           </div>
         </div>
       )}

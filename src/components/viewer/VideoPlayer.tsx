@@ -199,7 +199,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         ref={videoRef}
         autoPlay
         playsInline
-        preload="auto"
+        preload="metadata"
         src={media.streamUrl}
         onClick={togglePlay}
         onPlay={() => {
@@ -281,12 +281,24 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </p>
         </div>
 
-        <button
-          onClick={onClose}
-          className="p-2.5 rounded-full bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-700/70"
-        >
-          <X className="w-5 h-5" />
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Download Button */}
+          <a
+            href={`${media.streamUrl}&download=true`}
+            download={media.fileName}
+            onClick={(e) => e.stopPropagation()}
+            title="Download video"
+            className="p-2.5 rounded-full bg-zinc-900/80 hover:bg-emerald-600 text-zinc-300 hover:text-white border border-zinc-700/70 transition-all"
+          >
+            <Download className="w-5 h-5" />
+          </a>
+          <button
+            onClick={onClose}
+            className="p-2.5 rounded-full bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-700/70"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
       </div>
 
       {/* Bottom Controls Bar Overlay */}
