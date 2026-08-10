@@ -3,7 +3,7 @@ import { MediaItem, MediaType } from '@/types';
 import { mediaCache } from '@/lib/cache';
 import { getFolderSnapshot, saveFolderSnapshot, removeFolderSnapshot } from '@/lib/cache/snapshots';
 import { SUPPORTED_IMAGE_EXTENSIONS, SUPPORTED_VIDEO_EXTENSIONS, MOCK_MEDIA } from '@/lib/constants';
-import { getVideoThumbnailsForAlbum, updateAlbumCoverImage } from '@/lib/db';
+import { getVideoThumbnailsForAlbum, updateAlbumCoverImage, deleteAlbum } from '@/lib/db';
 
 export interface MegaFolderResult {
   albumId: string;
@@ -392,6 +392,8 @@ export async function fetchMegaFolderMedia(
       errMsg.includes('access denied');
 
     if (isExplicitDeadLink) {
+      // Auto-delete dead / corrupted / invalid password links permanently from Turso & Local DB
+      deleteAlbum(albumId).catch((err) => console.error('Failed to auto-delete dead album link:', err));
       return {
         albumId,
         items: [],

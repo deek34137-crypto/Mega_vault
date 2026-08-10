@@ -102,9 +102,18 @@ export default function HomePage() {
         })
       ).then((results) => {
         const updatedList: DisplayFolder[] = [];
+        const deadIds: string[] = [];
+
         for (const result of results) {
           if (result.status !== 'fulfilled' || !result.value) continue;
           const { alb, mediaData } = result.value;
+
+          if (mediaData && mediaData.isDeadLink) {
+            // Silently delete dead/corrupted link from DB and skip displaying on homepage
+            deadIds.push(alb.id);
+            fetch(`/api/albums/${alb.id}`, { method: 'DELETE' }).catch(() => {});
+            continue;
+          }
 
           if (mediaData && mediaData.subfolders && mediaData.subfolders.length > 0) {
             for (const sub of mediaData.subfolders) {
@@ -131,7 +140,11 @@ export default function HomePage() {
             });
           }
         }
-        if (updatedList.length > 0) {
+
+        if (deadIds.length > 0) {
+          // Filter out dead links from current display list peacefully
+          setDisplayFolders((prev) => prev.filter((f) => !deadIds.includes(f.albumId)));
+        } else if (updatedList.length > 0) {
           setDisplayFolders(updatedList);
         }
       });
