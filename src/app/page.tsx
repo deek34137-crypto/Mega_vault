@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { AlbumCard } from '@/components/gallery/AlbumCard';
 import { Album } from '@/types';
-import { FolderPlus, Sparkles, X, Link as LinkIcon, HardDrive, PlayCircle, Folder, ChevronRight, Video, Image as ImageIcon, Download, Upload } from 'lucide-react';
+import { FolderPlus, Sparkles, X, Link as LinkIcon, HardDrive, PlayCircle, Folder, ChevronRight, Video, Image as ImageIcon, Download, Upload, Search } from 'lucide-react';
 
 interface DisplayFolder {
   albumId: string;
@@ -273,6 +273,18 @@ export default function HomePage() {
       alert('Invalid backup JSON file');
     }
   };
+
+  const filteredFolders = displayFolders
+    .filter((f) => {
+      const q = searchQuery.toLowerCase();
+      return f.folderName.toLowerCase().includes(q) || f.albumTitle.toLowerCase().includes(q);
+    })
+    .sort((a, b) => {
+      if (sortBy === 'name') return a.folderName.localeCompare(b.folderName);
+      if (sortBy === 'oldest') return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      if (sortBy === 'items') return b.itemCount - a.itemCount;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
 
   return (
     <PageContainer>
