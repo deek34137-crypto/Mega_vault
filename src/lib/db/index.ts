@@ -113,6 +113,15 @@ async function ensureTursoSchema(client: Client): Promise<void> {
       updated_at TEXT
     );
   `);
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS video_thumbnails (
+      album_id TEXT NOT NULL,
+      handle TEXT NOT NULL,
+      thumbnail_data TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (album_id, handle)
+    );
+  `);
   // Non-destructive migration: add updated_at if it doesn't exist yet
   try {
     await client.execute(`ALTER TABLE albums ADD COLUMN updated_at TEXT;`);
@@ -135,6 +144,13 @@ function getLocalDb(): Database.Database {
         mega_link TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT
+      );
+      CREATE TABLE IF NOT EXISTS video_thumbnails (
+        album_id TEXT NOT NULL,
+        handle TEXT NOT NULL,
+        thumbnail_data TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (album_id, handle)
       );
     `);
 
@@ -404,5 +420,93 @@ export async function deleteAlbum(id: string): Promise<boolean> {
   }
 
   return success;
+}
+
+// ─── VIDEO THUMBNAILS DATABASE HELPERS ───
+
+export async function saveVideoThumbnail(albumId: string, handle: string, thumbnailData: string): Promise<void> {
+  const now = new Date().toISOString();
+  const client = getTursoClient();
+  if (client) {
+    try {
+      await ensureTursoSchema(client);
+      await client.execute({
+        sql: `INSERT OR REPLACE INTO video_thumbnails (album_id, handle, thumbnail_data, created_at) VALUES (?, ?, ?, ?)`,
+        args: [albumId, handle, thumbnailData, now],
+      });
+    } catch (e) {
+      console.error('[MegaVault] Turso DB saveVideoThumbnail error:', e);
+    }
+  }
+
+  try {
+    const db = getLocalDb();
+    const stmt = db.prepare(`INSERT OR REPLACE INTO video_thumbnails (album_id, handle, thumbnail_data, created_at) VALUES (?, ?, ?, ?)`);
+    stmt.run(albumId, handle, thumbnailData, now);
+  } catch (e) {
+    console.error('Local DB saveVideoThumbnail error:', e);
+  }
+}
+
+export async function getVideoThumbnail(albumId: string, handle: string): Promise<string | null> {
+  const client = getTursoClient();
+  if (client) {
+    try {
+      await ensureTursoSchema(client);
+      const res = await client.execute({
+        sql: 'SELECT thumbnail_data FROM video_thumbnails WHERE album_id = ? AND handle = ?',
+        args: [albumId, handle],
+      });
+      if (res.rows.length > 0) {
+        return res.rows[0].thumbnail_data as string;
+      }
+    } catch (e) {
+      console.error('Turso DB getVideoThumbnail error:', e);
+    }
+  }
+
+  try {
+    const db = getLocalDb();
+    const stmt = db.prepare('SELECT thumbnail_data FROM video_thumbnails WHERE album_id = ? AND handle = ?');
+    const row = stmt.get(albumId, handle) as { thumbnail_data: string } | undefined;
+    if (row) return row.thumbnail_data;
+  } catch (e) {
+    console.error('Local DB getVideoThumbnail error:', e);
+  }
+
+  return null;
+}
+
+export async function getVideoThumbnailsForAlbum(albumId: string): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  const client = getTursoClient();
+  if (client) {
+    try {
+      await ensureTursoSchema(client);
+      const res = await client.execute({
+        sql: 'SELECT handle, thumbnail_data FROM video_thumbnails WHERE album_id = ?',
+        args: [albumId],
+      });
+      for (const row of res.rows) {
+        map.set(row.handle as string, row.thumbnail_data as string);
+      }
+      return map;
+    } catch (e) {
+      console.error('Turso DB getVideoThumbnailsForAlbum error:', e);
+    }
+  }
+
+  try {
+    const db = getLocalDb();
+    const stmt = db.prepare('SELECT handle, thumbnail_data FROM video_thumbnails WHERE album_id = ?');
+    const rows = stmt.all(albumId) as { handle: string; thumbnail_data: string }[];
+    for (const r of rows) {
+      map.set(r.handle, r.thumbnail_data);
+    }
+  } catch (e) {
+    console.error('Local DB getVideoThumbnailsForAlbum error:', e);
+  }
+
+  return map;
 }
 

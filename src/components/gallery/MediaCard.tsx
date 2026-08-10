@@ -103,12 +103,28 @@ export const MediaCard: React.FC<MediaCardProps> = ({ media, onClick }) => {
             </div>
           </div>
         ) : isVideo ? (
-          /* Static gradient poster — zero stream requests, zero buffering hit on gallery load */
-          <div className="relative w-full h-full overflow-hidden">
-            <div className={`absolute inset-0 bg-gradient-to-br ${gradient} opacity-90`} />
+          /* Video Card — if real thumbnail exists, render it; otherwise render gradient poster */
+          <div className="relative w-full h-full overflow-hidden bg-zinc-950">
+            {media.thumbnailUrl && isVisible && !imageError ? (
+              <img
+                src={media.thumbnailUrl}
+                alt={media.fileName}
+                loading="lazy"
+                decoding="async"
+                onLoad={() => setImageLoaded(true)}
+                onError={() => setImageError(true)}
+                className={`w-full h-full object-cover group-hover:scale-105 transition-all duration-500 ease-out ${
+                  imageLoaded ? 'opacity-100' : 'opacity-0'
+                }`}
+              />
+            ) : null}
+
+            {(!media.thumbnailUrl || !imageLoaded) && (
+              <div className={`absolute inset-0 bg-gradient-to-br ${gradient} opacity-90`} />
+            )}
 
             {/* Play button overlay */}
-            <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/10 transition-colors">
+            <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/10 transition-colors z-10">
               <div className="w-12 h-12 rounded-full bg-blue-600/90 text-white flex items-center justify-center backdrop-blur-md group-hover:scale-110 group-hover:bg-blue-500 transition-all shadow-xl shadow-blue-600/40 border border-white/20">
                 <Play className="w-5 h-5 fill-white translate-x-0.5" />
               </div>

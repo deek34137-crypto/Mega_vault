@@ -51,6 +51,45 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const overlayTimeout = useRef<NodeJS.Timeout | null>(null);
   const touchStartX = useRef<number | null>(null);
   const touchStartY = useRef<number | null>(null);
+  const capturedRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    capturedRef.current = false;
+  }, [media.id]);
+
+  const captureThumbnail = useCallback(() => {
+    if (capturedRef.current || !videoRef.current) return;
+    const video = videoRef.current;
+    if (video.videoWidth === 0 || video.videoHeight === 0) return;
+
+    try {
+      capturedRef.current = true;
+      const canvas = document.createElement('canvas');
+      const aspect = video.videoWidth / video.videoHeight;
+      const targetWidth = 400;
+      const targetHeight = Math.round(targetWidth / aspect);
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
+
+      const thumbnailDataUrl = canvas.toDataURL('image/jpeg', 0.75);
+
+      fetch('/api/mega/thumbnail', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          albumId: media.albumId,
+          handle: media.fileHandle,
+          thumbnailDataUrl,
+        }),
+      }).catch((err) => console.error('Failed to save captured thumbnail:', err));
+    } catch (err) {
+      console.warn('Video thumbnail capture skipped:', err);
+    }
+  }, [media.albumId, media.fileHandle]);
 
   // Auto hide control overlay after 3 seconds of inactivity
   const handleMouseMove = () => {
@@ -208,17 +247,26 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }}
         onPause={() => setIsPlaying(false)}
         onWaiting={() => setIsBuffering(true)}
-        onPlaying={() => setIsBuffering(false)}
+        onPlaying={() => {
+          setIsBuffering(false);
+          captureThumbnail();
+        }}
         onSeeking={() => setIsBuffering(true)}
         onSeeked={() => setIsBuffering(false)}
         onCanPlay={() => setIsBuffering(false)}
         onCanPlayThrough={() => setIsBuffering(false)}
-        onLoadedData={() => setIsBuffering(false)}
+        onLoadedData={() => {
+          setIsBuffering(false);
+          captureThumbnail();
+        }}
         onTimeUpdate={() => {
           if (videoRef.current) {
             setCurrentTime(videoRef.current.currentTime);
             if (isBuffering && !videoRef.current.paused) {
               setIsBuffering(false);
+            }
+            if (videoRef.current.currentTime >= 0.5) {
+              captureThumbnail();
             }
           }
         }}

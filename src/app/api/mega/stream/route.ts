@@ -9,12 +9,12 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 // Maximum chunk size thresholds for smooth video streaming:
-// - SMALL_FILE_MAX_SIZE (32MB): Files <= 32MB are streamed in full (no chunk cap) to prevent mid-video range request buffering stalls.
-// - INITIAL_CHUNK_LARGE (16MB): Initial range request chunk for files > 32MB for instant playback start with ample buffer.
-// - SUSTAINED_CHUNK_LARGE (32MB): Sustained playback chunks for high-bitrate seeking without range request overhead.
-const SMALL_FILE_MAX_SIZE = 32 * 1024 * 1024;
-const INITIAL_CHUNK_LARGE = 16 * 1024 * 1024;
-const SUSTAINED_CHUNK_LARGE = 32 * 1024 * 1024;
+// - SMALL_FILE_MAX_SIZE (16MB): Files <= 16MB are streamed in full for 0-buffer playback.
+// - INITIAL_CHUNK_LARGE (4MB): Initial range request chunk (4MB) for instant playback start within ~150ms.
+// - SUSTAINED_CHUNK_LARGE (16MB): Sustained playback chunks for smooth seeking without Range overhead.
+const SMALL_FILE_MAX_SIZE = 16 * 1024 * 1024;
+const INITIAL_CHUNK_LARGE = 4 * 1024 * 1024;
+const SUSTAINED_CHUNK_LARGE = 16 * 1024 * 1024;
 
 export async function GET(request: Request) {
   const auth = await isAuthenticated();

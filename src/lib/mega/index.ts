@@ -3,6 +3,7 @@ import { MediaItem, MediaType } from '@/types';
 import { mediaCache } from '@/lib/cache';
 import { getFolderSnapshot, saveFolderSnapshot, removeFolderSnapshot } from '@/lib/cache/snapshots';
 import { SUPPORTED_IMAGE_EXTENSIONS, SUPPORTED_VIDEO_EXTENSIONS, MOCK_MEDIA } from '@/lib/constants';
+import { getVideoThumbnailsForAlbum } from '@/lib/db';
 
 export interface MegaFolderResult {
   albumId: string;
@@ -295,6 +296,9 @@ export async function fetchMegaFolderMedia(
     let imageCount = 0;
     let videoCount = 0;
 
+    // Load any previously captured video thumbnails from database for this album
+    const videoThumbnails = await getVideoThumbnailsForAlbum(albumId);
+
     if (targetNode && targetNode.children && Array.isArray(targetNode.children)) {
       for (const child of targetNode.children) {
         if (child.directory) {
@@ -332,6 +336,12 @@ export async function fetchMegaFolderMedia(
               child.name ||
               '';
 
+            const handleFirstPart = rawHandle.split(',')[0];
+            const hasStoredThumbnail = videoThumbnails.has(rawHandle) || videoThumbnails.has(handleFirstPart);
+            const computedThumbnail = hasStoredThumbnail
+              ? `/api/mega/thumbnail?albumId=${albumId}&handle=${encodeURIComponent(rawHandle)}`
+              : (child as any).thumbnailUrl || undefined;
+
             items.push({
               id: `med-${rawHandle || Math.random().toString(36).substring(7)}`,
               albumId,
@@ -341,7 +351,7 @@ export async function fetchMegaFolderMedia(
               mediaType,
               size: child.size || 0,
               createdAt: child.timestamp ? new Date(child.timestamp * 1000).toISOString() : new Date().toISOString(),
-              thumbnailUrl: (child as any).thumbnailUrl || undefined,
+              thumbnailUrl: computedThumbnail,
               streamUrl: `/api/mega/stream?albumId=${albumId}&handle=${encodeURIComponent(rawHandle)}`,
             });
           }
