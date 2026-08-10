@@ -24,6 +24,7 @@ import {
   Pause,
   Loader2,
   Trash2,
+  Folder,
 } from 'lucide-react';
 import { formatBytes } from '@/lib/utils/cn';
 
@@ -101,7 +102,14 @@ export default function FavoritesPage() {
     });
   }, []);
 
-  const filteredFavorites = favorites.filter((m) => {
+  const starredFolders = favorites.filter(
+    (f) => f.mimeType === 'folder' || (f.mediaType as string) === 'ALBUM' || (f.mediaType as string) === 'SUBFOLDER'
+  );
+  const mediaFavorites = favorites.filter(
+    (f) => f.mimeType !== 'folder' && (f.mediaType as string) !== 'ALBUM' && (f.mediaType as string) !== 'SUBFOLDER'
+  );
+
+  const filteredFavorites = mediaFavorites.filter((m) => {
     const matchesSearch = m.fileName.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesType =
       mediaTypeFilter === 'all'
@@ -113,8 +121,8 @@ export default function FavoritesPage() {
   });
 
   const visibleMedia = filteredFavorites.slice(0, visibleCount);
-  const photoCount = favorites.filter((m) => m.mediaType === 'IMAGE').length;
-  const videoCount = favorites.filter((m) => m.mediaType === 'VIDEO').length;
+  const photoCount = mediaFavorites.filter((m) => m.mediaType === 'IMAGE').length;
+  const videoCount = mediaFavorites.filter((m) => m.mediaType === 'VIDEO').length;
   const selectedMedia = selectedIndex !== null ? filteredFavorites[selectedIndex] : null;
 
   const handlePrev = useCallback(() => {
@@ -251,6 +259,72 @@ export default function FavoritesPage() {
           </div>
         </div>
       </div>
+
+      {/* Starred Folders Section */}
+      {starredFolders.length > 0 && (
+        <div className="mb-8">
+          <h3 className="text-xs font-extrabold text-amber-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+            <Star className="w-3.5 h-3.5 fill-amber-400" />
+            <span>Starred Albums & Folders ({starredFolders.length})</span>
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+            {starredFolders.map((f) => {
+              const isSub = f.fileHandle.startsWith('folder:');
+              const subPath = isSub ? f.fileHandle.replace('folder:', '') : '';
+              const targetHref = isSub
+                ? `/albums/${f.albumId}?folder=${encodeURIComponent(subPath)}`
+                : `/albums/${f.albumId}`;
+
+              return (
+                <Link key={f.id} href={targetHref}>
+                  <div className="glass-panel glass-panel-hover p-4 rounded-2xl border border-amber-500/30 bg-zinc-950/80 flex items-center justify-between group relative">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 flex-shrink-0">
+                        <Folder className="w-5 h-5 fill-amber-400/20" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <h4 className="text-xs sm:text-sm font-bold text-white group-hover:text-amber-400 transition-colors line-clamp-1">
+                            {f.fileName}
+                          </h4>
+                          <span className="px-1.5 py-0.2 rounded text-[9px] font-bold font-mono bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                            {isSub ? 'SUBFOLDER' : 'ALBUM'}
+                          </span>
+                        </div>
+                        <span className="text-[11px] text-zinc-400">Starred Folder</span>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        await fetch('/api/favorites', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            albumId: f.albumId,
+                            handle: f.fileHandle,
+                            fileName: f.fileName,
+                            mimeType: 'folder',
+                            mediaType: f.mediaType,
+                            size: 0,
+                          }),
+                        });
+                        loadFavorites();
+                      }}
+                      title="Unstar folder"
+                      className="p-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 text-amber-400 hover:bg-rose-900/60 hover:border-rose-600 hover:text-rose-200 transition-all"
+                    >
+                      <Star className="w-3.5 h-3.5 fill-amber-400" />
+                    </button>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Filter Controls & Search */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 mb-6">

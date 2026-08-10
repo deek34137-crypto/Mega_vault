@@ -1,18 +1,61 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { Image as ImageIcon, Video, Layers, ChevronRight, HardDrive, Trash2, Folder } from 'lucide-react';
+import { Image as ImageIcon, Video, Layers, ChevronRight, HardDrive, Trash2, Folder, Star } from 'lucide-react';
 import { Album } from '@/types';
 import { formatDate } from '@/lib/utils/cn';
 
 interface AlbumCardProps {
   album: Album;
   onDelete?: (id: string) => void;
+  onFavoriteToggle?: (albumId: string, isFav: boolean) => void;
 }
 
-export const AlbumCard: React.FC<AlbumCardProps> = ({ album, onDelete }) => {
+export const AlbumCard: React.FC<AlbumCardProps> = ({ album, onDelete, onFavoriteToggle }) => {
+  const [isFavorite, setIsFavorite] = useState(false);
+
+  useEffect(() => {
+    fetch(`/api/favorites`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && Array.isArray(data.favorites)) {
+          const isFav = data.favorites.some(
+            (f: any) => f.albumId === album.id && (f.fileHandle === 'album:root' || f.mediaType === 'ALBUM')
+          );
+          setIsFavorite(isFav);
+        }
+      })
+      .catch(() => {});
+  }, [album.id]);
+
+  const handleFavoriteClick = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const nextFavState = !isFavorite;
+    setIsFavorite(nextFavState);
+    if (onFavoriteToggle) onFavoriteToggle(album.id, nextFavState);
+
+    try {
+      await fetch('/api/favorites', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          albumId: album.id,
+          handle: 'album:root',
+          fileName: album.title,
+          mimeType: 'folder',
+          mediaType: 'ALBUM',
+          size: 0,
+          thumbnailUrl: album.coverUrl,
+        }),
+      });
+    } catch (err) {
+      console.error('Failed to toggle album favorite:', err);
+    }
+  };
+
   const handleDelete = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -30,7 +73,7 @@ export const AlbumCard: React.FC<AlbumCardProps> = ({ album, onDelete }) => {
         <motion.div
           whileHover={{ y: -4, scale: 1.01 }}
           transition={{ duration: 0.2, ease: 'easeOut' }}
-          className="glass-panel glass-panel-hover rounded-3xl overflow-hidden cursor-pointer border border-zinc-800/80 flex flex-col h-full bg-zinc-950/60"
+          className="glass-panel glass-panel-hover rounded-3xl overflow-hidden cursor-pointer border border-zinc-800/80 flex flex-col h-full bg-zinc-950/60 relative"
         >
           {/* Cover Preview Image Container */}
           <div className="relative aspect-[16/10] w-full bg-zinc-900 overflow-hidden">
@@ -52,20 +95,44 @@ export const AlbumCard: React.FC<AlbumCardProps> = ({ album, onDelete }) => {
             <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/20 to-transparent opacity-80" />
 
             {/* MEGA Source Badge */}
-            <div className="absolute top-3 left-3 px-2.5 py-1 rounded-full bg-zinc-900/80 backdrop-blur-md border border-zinc-700/60 text-[11px] font-medium text-zinc-300 flex items-center gap-1.5 shadow-md">
+            <div className="absolute top-3 left-3 px-2.5 py-1 rounded-full bg-zinc-900/80 backdrop-blur-md border border-zinc-700/60 text-[11px] font-medium text-zinc-300 flex items-center gap-1.5 shadow-md z-10">
               <HardDrive className="w-3 h-3 text-red-400" />
               <span>MEGA Link</span>
             </div>
 
-            {/* Delete Album Button */}
-            {onDelete && (
+            {/* Top Action Buttons (Favorite Star + Delete) */}
+            <div className="absolute top-3 right-3 flex items-center space-x-2 z-20">
+              {/* Star Favorite Button & Sticker */}
               <button
-                onClick={handleDelete}
-                title="Remove Album"
-                className="absolute top-3 right-3 p-2 rounded-full bg-red-600/80 hover:bg-red-600 text-white backdrop-blur-md transition-all shadow-md z-20 opacity-0 group-hover:opacity-100"
+                onClick={handleFavoriteClick}
+                title={isFavorite ? 'Unstar album' : 'Star album'}
+                className={`p-2 rounded-full border backdrop-blur-md transition-all shadow-md ${
+                  isFavorite
+                    ? 'bg-amber-500/20 border-amber-500/40 text-amber-400 opacity-100'
+                    : 'bg-black/60 border-white/20 text-zinc-300 opacity-0 group-hover:opacity-100 hover:text-amber-400'
+                }`}
               >
-                <Trash2 className="w-3.5 h-3.5" />
+                <Star className={`w-3.5 h-3.5 ${isFavorite ? 'fill-amber-400 text-amber-400 scale-110' : ''}`} />
               </button>
+
+              {/* Delete Album Button */}
+              {onDelete && (
+                <button
+                  onClick={handleDelete}
+                  title="Remove Album"
+                  className="p-2 rounded-full bg-red-600/80 hover:bg-red-600 text-white backdrop-blur-md transition-all shadow-md opacity-0 group-hover:opacity-100"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* Favorited Gold Sticker Badge */}
+            {isFavorite && (
+              <div className="absolute top-12 right-3 z-10 px-2 py-0.5 rounded-md bg-amber-500/20 backdrop-blur-md border border-amber-500/40 text-amber-300 text-[10px] font-extrabold tracking-wider uppercase flex items-center gap-1 shadow-lg">
+                <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                <span>Starred Folder</span>
+              </div>
             )}
 
             {/* Media Count Pills */}

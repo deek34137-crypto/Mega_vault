@@ -115,6 +115,9 @@ function AlbumContent() {
   const touchStartX = useRef<number | null>(null);
   const touchStartY = useRef<number | null>(null);
 
+  // Subfolder favorites state
+  const [favSubfolders, setFavSubfolders] = useState<Set<string>>(new Set());
+
   const loadMedia = useCallback(async () => {
     if (!albumId) return;
 
@@ -122,6 +125,22 @@ function AlbumContent() {
       setIsLoading(true);
       setErrorMessage(null);
       setVisibleCount(ITEMS_PER_PAGE);
+
+      // Load favorites to highlight starred subfolders
+      fetch('/api/favorites')
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data && Array.isArray(data.favorites)) {
+            const subPaths = new Set<string>();
+            data.favorites.forEach((f: any) => {
+              if (f.albumId === albumId && f.fileHandle.startsWith('folder:')) {
+                subPaths.add(f.fileHandle.replace('folder:', ''));
+              }
+            });
+            setFavSubfolders(subPaths);
+          }
+        })
+        .catch(() => {});
 
       const url = `/api/albums/${encodeURIComponent(albumId)}/media${folderParam ? `?folder=${encodeURIComponent(folderParam)}` : ''}`;
       const res = await fetch(url);
@@ -379,24 +398,68 @@ function AlbumContent() {
         <div className="mb-8">
           <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wider mb-3">Subfolders</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-            {subfolders.map((sub) => (
-              <Link key={sub.path} href={`/albums/${albumId}?folder=${encodeURIComponent(sub.path)}`}>
-                <div className="glass-panel glass-panel-hover p-3.5 sm:p-4 rounded-2xl border border-zinc-800/80 flex items-center justify-between group">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 flex-shrink-0">
-                      <Folder className="w-5 h-5 fill-blue-400/20" />
+            {subfolders.map((sub) => {
+              const isFavSub = favSubfolders.has(sub.path);
+              return (
+                <Link key={sub.path} href={`/albums/${albumId}?folder=${encodeURIComponent(sub.path)}`}>
+                  <div className="glass-panel glass-panel-hover p-3.5 sm:p-4 rounded-2xl border border-zinc-800/80 flex items-center justify-between group relative">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 flex-shrink-0">
+                        <Folder className="w-5 h-5 fill-blue-400/20" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <h4 className="text-xs sm:text-sm font-bold text-white group-hover:text-blue-400 transition-colors line-clamp-1">
+                            {sub.name}
+                          </h4>
+                          {isFavSub && <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />}
+                        </div>
+                        <span className="text-[11px] sm:text-xs text-zinc-400">{sub.itemCount} items</span>
+                      </div>
                     </div>
-                    <div>
-                      <h4 className="text-xs sm:text-sm font-bold text-white group-hover:text-blue-400 transition-colors line-clamp-1">
-                        {sub.name}
-                      </h4>
-                      <span className="text-[11px] sm:text-xs text-zinc-400">{sub.itemCount} items</span>
+
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={async (e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          const handle = `folder:${sub.path}`;
+                          const nextSet = new Set(favSubfolders);
+                          if (isFavSub) nextSet.delete(sub.path);
+                          else nextSet.add(sub.path);
+                          setFavSubfolders(nextSet);
+
+                          try {
+                            await fetch('/api/favorites', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({
+                                albumId,
+                                handle,
+                                fileName: sub.name,
+                                mimeType: 'folder',
+                                mediaType: 'SUBFOLDER',
+                                size: 0,
+                              }),
+                            });
+                          } catch (err) {}
+                        }}
+                        title={isFavSub ? 'Unstar subfolder' : 'Star subfolder'}
+                        className={`p-1.5 rounded-lg border backdrop-blur-md transition-all ${
+                          isFavSub
+                            ? 'bg-amber-500/20 border-amber-500/40 text-amber-400 opacity-100'
+                            : 'bg-black/40 border-white/10 text-zinc-400 opacity-0 group-hover:opacity-100 hover:text-amber-400'
+                        }`}
+                      >
+                        <Star className={`w-3.5 h-3.5 ${isFavSub ? 'fill-amber-400 text-amber-400 scale-110' : ''}`} />
+                      </button>
+
+                      <ChevronRight className="w-4 h-4 text-zinc-500 group-hover:text-blue-400 group-hover:translate-x-1 transition-all flex-shrink-0" />
                     </div>
                   </div>
-                  <ChevronRight className="w-4 h-4 text-zinc-500 group-hover:text-blue-400 group-hover:translate-x-1 transition-all flex-shrink-0" />
-                </div>
-              </Link>
-            ))}
+                </Link>
+              );
+            })}
           </div>
         </div>
       )}
