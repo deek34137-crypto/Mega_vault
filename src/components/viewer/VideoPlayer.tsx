@@ -42,6 +42,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const [isPlaying, setIsPlaying] = useState(true);
   const [isBuffering, setIsBuffering] = useState(true);
+  const [hasError, setHasError] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
@@ -55,6 +56,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   useEffect(() => {
     capturedRef.current = false;
+    setHasError(false);
   }, [media.id]);
 
   const captureThumbnail = useCallback(() => {
@@ -272,11 +274,52 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }}
         onLoadedMetadata={() => videoRef.current && setDuration(videoRef.current.duration)}
         onEnded={() => setIsPlaying(false)}
+        onError={async () => {
+          setIsBuffering(false);
+          // Check if session is expired
+          try {
+            const authCheck = await fetch('/api/albums');
+            if (authCheck.status === 401) {
+              window.location.href = '/login';
+              return;
+            }
+          } catch (e) {}
+          setHasError(true);
+        }}
         className="max-h-screen w-full object-contain cursor-pointer"
       />
 
+      {/* Video Error / Session Expired Banner */}
+      {hasError && (
+        <div className="absolute inset-0 flex items-center justify-center z-40 bg-black/80 backdrop-blur-md p-6">
+          <div className="max-w-md w-full glass-panel p-6 rounded-3xl border border-zinc-800 text-center">
+            <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 mx-auto mb-3">
+              <Info className="w-6 h-6 text-amber-400" />
+            </div>
+            <h4 className="text-base font-bold text-white mb-1">Playback Error</h4>
+            <p className="text-xs text-zinc-400 mb-6">
+              Could not load video stream. Your login session may have expired, or the connection timed out.
+            </p>
+            <div className="flex items-center justify-center gap-3">
+              <a
+                href="/login"
+                className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold"
+              >
+                Log In Again
+              </a>
+              <button
+                onClick={onClose}
+                className="px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold"
+              >
+                Close Player
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Buffering Indicator Overlay */}
-      {isBuffering && (
+      {isBuffering && !hasError && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30 bg-black/30 backdrop-blur-[2px]">
           <div className="p-4 rounded-2xl bg-zinc-900/90 border border-zinc-800 text-blue-400 flex items-center gap-3 shadow-2xl">
             <Loader2 className="w-6 h-6 animate-spin text-blue-400" />

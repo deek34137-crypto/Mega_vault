@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getAlbumById } from '@/lib/db';
 import { getMegaFileByHandle, fetchMegaFolderMedia } from '@/lib/mega';
 import { isAuthenticated } from '@/lib/auth';
-import { imageBufferCache } from '@/lib/cache';
+import { imageBufferCache, videoChunkCache } from '@/lib/cache';
 import { Readable } from 'stream';
 
 export const dynamic = 'force-dynamic';
@@ -133,10 +133,9 @@ export async function GET(request: Request) {
       let end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
 
       // Smart Chunk Allocation:
-      // 1. Files <= 32MB (e.g. 4.3MB video): Send remaining content to end of file in 1 response (no chunk cap).
-      //    This eliminates secondary range requests near the end of small/medium videos!
-      // 2. Remaining bytes <= 32MB: Send all remaining bytes to end of file.
-      // 3. Files > 32MB: 16MB for start=0, 32MB for sustained seeking.
+      // 1. Files <= 16MB: Send full file in 1 response (0 buffer).
+      // 2. Remaining bytes <= 16MB: Send remaining content.
+      // 3. Files > 16MB: 4MB initial chunk for fast start (<150ms), 16MB for sustained seeking.
       if (fileSize <= SMALL_FILE_MAX_SIZE || fileSize - start <= SUSTAINED_CHUNK_LARGE) {
         end = fileSize - 1;
       } else {
@@ -147,6 +146,57 @@ export async function GET(request: Request) {
       }
 
       const chunkSize = end - start + 1;
+      const videoCacheKey = `${album.id}_${handle}_${start}_${end}`;
+
+      // FAST PATH: Initial 4MB video chunk served in 1ms from RAM cache!
+      if (start === 0) {
+        const cachedChunk = videoChunkCache.get(videoCacheKey);
+        if (cachedChunk) {
+          return new Response(cachedChunk.buffer as any, {
+            status: 206,
+            headers: {
+              'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+              'Accept-Ranges': 'bytes',
+              'Content-Length': cachedChunk.buffer.length.toString(),
+              'Content-Type': mimeType,
+              'Content-Disposition': `inline; filename="${encodeURIComponent(fileName)}"`,
+              'Cache-Control': 'public, max-age=31536000, immutable',
+              'CDN-Cache-Control': 'public, max-age=31536000, immutable',
+              'X-Video-FastStart': 'RAM-Cache-Hit',
+            },
+          });
+        }
+
+        // Download initial 4MB chunk into RAM cache asynchronously
+        try {
+          const buffer = await new Promise<Buffer>((resolve, reject) => {
+            const stream = targetFile.download({ start, end });
+            const chunks: Buffer[] = [];
+            stream.on('data', (c: Buffer) => chunks.push(c));
+            stream.on('end', () => resolve(Buffer.concat(chunks)));
+            stream.on('error', (e: any) => reject(e));
+          });
+
+          videoChunkCache.set(videoCacheKey, buffer, mimeType, fileSize);
+
+          return new Response(buffer as any, {
+            status: 206,
+            headers: {
+              'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+              'Accept-Ranges': 'bytes',
+              'Content-Length': buffer.length.toString(),
+              'Content-Type': mimeType,
+              'Content-Disposition': `inline; filename="${encodeURIComponent(fileName)}"`,
+              'Cache-Control': 'public, max-age=31536000, immutable',
+              'CDN-Cache-Control': 'public, max-age=31536000, immutable',
+              'X-Video-FastStart': 'RAM-Cached',
+            },
+          });
+        } catch (err) {
+          console.error('Error buffering initial video chunk:', err);
+          // Fall back to direct streaming if buffer fails
+        }
+      }
 
       const nodeStream = targetFile.download({ start, end });
       const webStream = Readable.toWeb(nodeStream);
@@ -160,6 +210,7 @@ export async function GET(request: Request) {
           'Content-Type': mimeType,
           'Content-Disposition': `inline; filename="${encodeURIComponent(fileName)}"`,
           'Cache-Control': 'public, max-age=31536000, immutable',
+          'X-Video-FastStart': 'Stream',
         },
       });
     }

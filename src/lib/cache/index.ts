@@ -85,3 +85,42 @@ class ImageBufferCache {
 
 export const imageBufferCache = new ImageBufferCache();
 
+interface VideoChunkEntry {
+  buffer: Buffer;
+  mimeType: string;
+  fileSize: number;
+  timestamp: number;
+}
+
+class VideoChunkCache {
+  private cache = new Map<string, VideoChunkEntry>();
+  private maxEntries = 40; // Cache up to 40 video initial chunks in RAM (~160MB max)
+  private ttlMs = 2 * 60 * 60 * 1000; // 2 hours TTL
+
+  get(key: string): VideoChunkEntry | null {
+    const entry = this.cache.get(key);
+    if (!entry) return null;
+
+    if (Date.now() - entry.timestamp > this.ttlMs) {
+      this.cache.delete(key);
+      return null;
+    }
+
+    return entry;
+  }
+
+  set(key: string, buffer: Buffer, mimeType: string, fileSize: number): void {
+    if (this.cache.size >= this.maxEntries) {
+      const oldestKey = this.cache.keys().next().value;
+      if (oldestKey) this.cache.delete(oldestKey);
+    }
+    this.cache.set(key, { buffer, mimeType, fileSize, timestamp: Date.now() });
+  }
+
+  clearAll(): void {
+    this.cache.clear();
+  }
+}
+
+export const videoChunkCache = new VideoChunkCache();
+

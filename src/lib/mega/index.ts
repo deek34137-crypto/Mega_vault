@@ -3,7 +3,7 @@ import { MediaItem, MediaType } from '@/types';
 import { mediaCache } from '@/lib/cache';
 import { getFolderSnapshot, saveFolderSnapshot, removeFolderSnapshot } from '@/lib/cache/snapshots';
 import { SUPPORTED_IMAGE_EXTENSIONS, SUPPORTED_VIDEO_EXTENSIONS, MOCK_MEDIA } from '@/lib/constants';
-import { getVideoThumbnailsForAlbum } from '@/lib/db';
+import { getVideoThumbnailsForAlbum, updateAlbumCoverImage } from '@/lib/db';
 
 export interface MegaFolderResult {
   albumId: string;
@@ -341,8 +341,7 @@ export async function fetchMegaFolderMedia(
             const computedThumbnail = hasStoredThumbnail
               ? `/api/mega/thumbnail?albumId=${albumId}&handle=${encodeURIComponent(rawHandle)}`
               : (child as any).thumbnailUrl || undefined;
-
-            items.push({
+            const mediaItem: MediaItem = {
               id: `med-${rawHandle || Math.random().toString(36).substring(7)}`,
               albumId,
               fileHandle: rawHandle,
@@ -353,10 +352,17 @@ export async function fetchMegaFolderMedia(
               createdAt: child.timestamp ? new Date(child.timestamp * 1000).toISOString() : new Date().toISOString(),
               thumbnailUrl: computedThumbnail,
               streamUrl: `/api/mega/stream?albumId=${albumId}&handle=${encodeURIComponent(rawHandle)}`,
-            });
+            };
+            items.push(mediaItem);
           }
         }
       }
+    }
+
+    // Auto-set cover image for album from first available photo
+    const firstImage = items.find((m) => m.mediaType === 'IMAGE');
+    if (firstImage && firstImage.streamUrl && !subfolderPath) {
+      updateAlbumCoverImage(albumId, firstImage.streamUrl).catch(() => {});
     }
 
     const result: MegaFolderResult = {

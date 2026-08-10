@@ -122,12 +122,13 @@ async function ensureTursoSchema(client: Client): Promise<void> {
       PRIMARY KEY (album_id, handle)
     );
   `);
-  // Non-destructive migration: add updated_at if it doesn't exist yet
+  // Non-destructive migrations: add updated_at and cover_image_url if they don't exist yet
   try {
     await client.execute(`ALTER TABLE albums ADD COLUMN updated_at TEXT;`);
-  } catch {
-    // Column already exists — ignore
-  }
+  } catch {}
+  try {
+    await client.execute(`ALTER TABLE albums ADD COLUMN cover_image_url TEXT;`);
+  } catch {}
   tursoInitialized = true;
 }
 
@@ -143,7 +144,8 @@ function getLocalDb(): Database.Database {
         description TEXT,
         mega_link TEXT NOT NULL,
         created_at TEXT NOT NULL,
-        updated_at TEXT
+        updated_at TEXT,
+        cover_image_url TEXT
       );
       CREATE TABLE IF NOT EXISTS video_thumbnails (
         album_id TEXT NOT NULL,
@@ -154,14 +156,12 @@ function getLocalDb(): Database.Database {
       );
     `);
 
-    // Non-destructive migration: add updated_at if it doesn't exist yet
     try {
       localDb.exec(`ALTER TABLE albums ADD COLUMN updated_at TEXT;`);
-    } catch {
-      // Column already exists — ignore
-    }
-
-    // Database table ready
+    } catch {}
+    try {
+      localDb.exec(`ALTER TABLE albums ADD COLUMN cover_image_url TEXT;`);
+    } catch {}
   }
   return localDb;
 }
@@ -211,6 +211,7 @@ export interface DbAlbum {
   mega_link: string;
   created_at: string;
   updated_at?: string | null;
+  cover_image_url?: string | null;
 }
 
 export async function getAllAlbums(): Promise<DbAlbum[]> {
@@ -228,6 +229,7 @@ export async function getAllAlbums(): Promise<DbAlbum[]> {
         mega_link: decryptText(row.mega_link),
         created_at: row.created_at,
         updated_at: row.updated_at,
+        cover_image_url: row.cover_image_url,
       }));
     } catch (e) {
       console.error('[MegaVault] Turso DB getAllAlbums error:', e);
@@ -291,6 +293,7 @@ export async function getAlbumById(id: string): Promise<DbAlbum | undefined> {
           mega_link: decryptText(row.mega_link),
           created_at: row.created_at,
           updated_at: row.updated_at,
+          cover_image_url: row.cover_image_url,
         };
       }
     } catch (e) {
@@ -508,5 +511,28 @@ export async function getVideoThumbnailsForAlbum(albumId: string): Promise<Map<s
   }
 
   return map;
+}
+
+export async function updateAlbumCoverImage(albumId: string, coverImageUrl: string): Promise<void> {
+  const client = getTursoClient();
+  if (client) {
+    try {
+      await ensureTursoSchema(client);
+      await client.execute({
+        sql: 'UPDATE albums SET cover_image_url = ? WHERE id = ?',
+        args: [coverImageUrl, albumId],
+      });
+    } catch (e) {
+      console.error('Turso DB updateAlbumCoverImage error:', e);
+    }
+  }
+
+  try {
+    const db = getLocalDb();
+    const stmt = db.prepare('UPDATE albums SET cover_image_url = ? WHERE id = ?');
+    stmt.run(coverImageUrl, albumId);
+  } catch (e) {
+    console.error('Local DB updateAlbumCoverImage error:', e);
+  }
 }
 

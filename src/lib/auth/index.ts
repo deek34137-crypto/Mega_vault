@@ -38,7 +38,7 @@ export async function createAuthSession(): Promise<string> {
   const token = await new SignJWT({ authenticated: true })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
-    .setExpirationTime('30d')
+    .setExpirationTime('24h')
     .sign(SECRET_KEY);
 
   const cookieStore = await cookies();
@@ -47,7 +47,7 @@ export async function createAuthSession(): Promise<string> {
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
     path: '/',
-    maxAge: 30 * 24 * 60 * 60, // 30 days
+    maxAge: 24 * 60 * 60, // 24 hours
   });
 
   return token;

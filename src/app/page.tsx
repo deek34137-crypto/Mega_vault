@@ -16,11 +16,14 @@ interface DisplayFolder {
   subfolderCount?: number;
   megaUrl: string;
   createdAt: string;
+  coverImageUrl?: string;
 }
 
 export default function HomePage() {
   const [albums, setAlbums] = useState<Album[]>([]);
   const [displayFolders, setDisplayFolders] = useState<DisplayFolder[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'name' | 'items'>('newest');
   const [isLoading, setIsLoading] = useState(true);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [newTitle, setNewTitle] = useState('');
@@ -79,6 +82,7 @@ export default function HomePage() {
         subfolderCount: alb.subfolderCount ?? 0,
         megaUrl: alb.megaUrl || '',
         createdAt: alb.createdAt,
+        coverImageUrl: (alb as any).cover_image_url || (alb as any).coverImageUrl || undefined,
       }));
 
       setDisplayFolders(initialDisplay);
@@ -339,11 +343,47 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* Folders & Subfolders Section (ONLY Folders on Homepage) */}
+      {/* Folders & Subfolders Section */}
       <section className="mb-12">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-wider">Indexed Folders</h2>
-          <span className="text-xs text-zinc-500 font-medium">{displayFolders.length} folders</span>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-5">
+          <div className="flex items-center space-x-2">
+            <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-wider">Indexed Folders</h2>
+            <span className="text-xs text-zinc-500 font-medium font-mono">({displayFolders.length})</span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* Search Input */}
+            <div className="relative flex-1 sm:w-64">
+              <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search folders..."
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-8 pr-3 py-1.5 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* Sort Dropdown */}
+            <select
+              value={sortBy}
+              onChange={(e: any) => setSortBy(e.target.value)}
+              className="bg-zinc-900 border border-zinc-800 rounded-xl px-2.5 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-blue-500 cursor-pointer"
+            >
+              <option value="newest">Newest First</option>
+              <option value="oldest">Oldest First</option>
+              <option value="name">Name (A-Z)</option>
+              <option value="items">Most Items</option>
+            </select>
+          </div>
         </div>
 
         {isLoading ? (
@@ -352,50 +392,81 @@ export default function HomePage() {
               <div key={i} className="h-36 rounded-2xl bg-zinc-900/60 animate-pulse border border-zinc-800" />
             ))}
           </div>
-        ) : displayFolders.length === 0 ? (
+        ) : filteredFolders.length === 0 ? (
           <div className="glass-panel p-12 rounded-3xl text-center border border-zinc-800">
             <div className="w-14 h-14 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 mx-auto mb-4">
               <Folder className="w-7 h-7" />
             </div>
-            <h3 className="text-lg font-bold text-white mb-1">No Folders Displaying Currently</h3>
+            <h3 className="text-lg font-bold text-white mb-1">
+              {searchQuery ? 'No Matching Folders Found' : 'No Folders Displaying Currently'}
+            </h3>
             <p className="text-xs text-zinc-400 mb-6">
-              {hasLocalBackup
+              {searchQuery
+                ? `No folders matched "${searchQuery}". Try a different keyword.`
+                : hasLocalBackup
                 ? `Render container restarted. Found ${localBackupCount} saved folder links in your browser database!`
                 : 'Paste a MEGA folder link to index folders and subfolders automatically.'}
             </p>
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-              {hasLocalBackup && (
-                <button
-                  onClick={handleRestoreFromLocalCache}
-                  disabled={isRestoringLocal}
-                  className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-bold transition-all shadow-md flex items-center gap-1.5"
-                >
-                  <Sparkles className="w-4 h-4" />
-                  <span>{isRestoringLocal ? 'Restoring Folders...' : `Show / Restore ${localBackupCount} Saved Folders`}</span>
-                </button>
-              )}
-
+            {searchQuery ? (
               <button
-                onClick={() => setIsAddModalOpen(true)}
-                className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition-all shadow-md"
+                onClick={() => setSearchQuery('')}
+                className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-semibold"
               >
-                Add MEGA Folder Link
+                Clear Search Filter
               </button>
-            </div>
+            ) : (
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                {hasLocalBackup && (
+                  <button
+                    onClick={handleRestoreFromLocalCache}
+                    disabled={isRestoringLocal}
+                    className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-bold transition-all shadow-md flex items-center gap-1.5"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    <span>{isRestoringLocal ? 'Restoring Folders...' : `Show / Restore ${localBackupCount} Saved Folders`}</span>
+                  </button>
+                )}
+
+                <button
+                  onClick={() => setIsAddModalOpen(true)}
+                  className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition-all shadow-md"
+                >
+                  Add MEGA Folder Link
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-5">
-            {displayFolders.map((folder) => (
+            {filteredFolders.map((folder) => (
               <Link
                 key={`${folder.albumId}::${folder.subfolderPath || '__root__'}`}
                 href={`/albums/${folder.albumId}${folder.subfolderPath ? `?folder=${encodeURIComponent(folder.subfolderPath)}` : ''}`}
                 className="group"
               >
-                <div className="glass-panel glass-panel-hover p-4 sm:p-6 rounded-2xl sm:rounded-3xl border border-zinc-800/80 bg-zinc-950/60 flex items-start justify-between gap-3 sm:gap-4 transition-all duration-300 hover:border-blue-500/40">
-                  <div className="flex items-start space-x-3 sm:space-x-4">
-                    <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-gradient-to-br from-blue-600/20 to-indigo-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400 flex-shrink-0 group-hover:scale-105 transition-transform">
-                      <Folder className="w-5 h-5 sm:w-6 sm:h-6 fill-blue-400/20" />
+                <div className="glass-panel glass-panel-hover p-4 sm:p-6 rounded-2xl sm:rounded-3xl border border-zinc-800/80 bg-zinc-950/60 flex items-start justify-between gap-3 sm:gap-4 transition-all duration-300 hover:border-blue-500/40 relative overflow-hidden">
+                  {/* Dynamic Album Cover Background if available */}
+                  {folder.coverImageUrl && (
+                    <div className="absolute inset-0 z-0 opacity-15 group-hover:opacity-25 transition-opacity pointer-events-none">
+                      <img
+                        src={folder.coverImageUrl}
+                        alt={folder.folderName}
+                        className="w-full h-full object-cover blur-[2px]"
+                      />
                     </div>
+                  )}
+
+                  <div className="flex items-start space-x-3 sm:space-x-4 relative z-10">
+                    {folder.coverImageUrl ? (
+                      <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl overflow-hidden border border-blue-500/40 flex-shrink-0 group-hover:scale-105 transition-transform bg-zinc-900">
+                        <img src={folder.coverImageUrl} alt="" className="w-full h-full object-cover" />
+                      </div>
+                    ) : (
+                      <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-gradient-to-br from-blue-600/20 to-indigo-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400 flex-shrink-0 group-hover:scale-105 transition-transform">
+                        <Folder className="w-5 h-5 sm:w-6 sm:h-6 fill-blue-400/20" />
+                      </div>
+                    )}
+
                     <div>
                       <h3 className="text-sm sm:text-base font-bold text-white group-hover:text-blue-400 transition-colors line-clamp-1">
                         {folder.folderName}
@@ -415,7 +486,7 @@ export default function HomePage() {
                     </div>
                   </div>
 
-                  <div className="p-1.5 sm:p-2 rounded-full bg-zinc-900 border border-zinc-800 text-zinc-400 group-hover:text-blue-400 group-hover:translate-x-1 transition-all flex-shrink-0">
+                  <div className="p-1.5 sm:p-2 rounded-full bg-zinc-900 border border-zinc-800 text-zinc-400 group-hover:text-blue-400 group-hover:translate-x-1 transition-all flex-shrink-0 relative z-10">
                     <ChevronRight className="w-4 h-4" />
                   </div>
                 </div>
