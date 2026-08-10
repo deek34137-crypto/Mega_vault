@@ -102,105 +102,41 @@ export default function HomePage() {
         setLocalBackupCount(savedLocalItems.length);
       }
 
-      // Step 1: Render album list INSTANTLY from DB query (0ms delay)
-      const initialDisplay: DisplayFolder[] = loadedAlbums.map((alb) => ({
-        albumId: alb.id,
-        albumTitle: alb.title,
-        folderName: alb.title,
-        subfolderPath: '',
-        itemCount: alb.mediaCount?.total ?? 0,
-        subfolderCount: alb.subfolderCount ?? 0,
-        megaUrl: alb.megaUrl || '',
-        createdAt: alb.createdAt,
-        coverImageUrl: (alb as any).cover_image_url || (alb as any).coverImageUrl || undefined,
-      }));
-
-      setDisplayFolders(initialDisplay);
-      setIsLoading(false); // UI shows all folders immediately!
-
-      // Step 2: Asynchronously update subfolders in background in small concurrency batches (max 3 at a time)
-      const fetchInBatches = async () => {
-        const results: Array<{ alb: Album; mediaData: any } | null> = [];
-        const CONCURRENCY = 3;
-        for (let i = 0; i < loadedAlbums.length; i += CONCURRENCY) {
-          const chunk = loadedAlbums.slice(i, i + CONCURRENCY);
-          const chunkResults = await Promise.allSettled(
-            chunk.map(async (alb) => {
-              try {
-                const mediaRes = await fetch(`/api/albums/${alb.id}/media`);
-                if (!mediaRes.ok) return null;
-                const mediaData = await mediaRes.json();
-                return { alb, mediaData };
-              } catch (e) {
-                return null;
-              }
-            })
-          );
-          for (const res of chunkResults) {
-            if (res.status === 'fulfilled' && res.value) {
-              results.push(res.value);
-            }
-          }
-        }
-        return results;
-      };
-
-      fetchInBatches().then((results) => {
-        const updatedList: DisplayFolder[] = [];
-        const deadIds: string[] = [];
-
-        for (const item of results) {
-          if (!item) continue;
-          const { alb, mediaData } = item;
-
-          if (mediaData && mediaData.isDeadLink) {
-            // Keep album visible so user can manually retry or remove
-            updatedList.push({
+      // Render albums and subfolders instantly from single API response (0ms delay, 0 N+1 calls)
+      const folderList: DisplayFolder[] = [];
+      for (const alb of loadedAlbums) {
+        const coverUrl = (alb as any).cover_image_url || (alb as any).coverImageUrl || (alb as any).coverUrl || undefined;
+        const subfolders = (alb as any).subfolders || [];
+        if (subfolders.length > 0) {
+          for (const sub of subfolders) {
+            folderList.push({
               albumId: alb.id,
               albumTitle: alb.title,
-              folderName: alb.title,
-              subfolderPath: '',
-              itemCount: 0,
-              subfolderCount: 0,
+              folderName: sub.name,
+              subfolderPath: sub.path,
+              itemCount: sub.itemCount || 0,
               megaUrl: alb.megaUrl || '',
               createdAt: alb.createdAt,
-            });
-            continue;
-          }
-
-          if (mediaData && mediaData.subfolders && mediaData.subfolders.length > 0) {
-            for (const sub of mediaData.subfolders) {
-              updatedList.push({
-                albumId: alb.id,
-                albumTitle: alb.title,
-                folderName: sub.name,
-                subfolderPath: sub.path,
-                itemCount: sub.itemCount || 0,
-                megaUrl: alb.megaUrl || '',
-                createdAt: alb.createdAt,
-              });
-            }
-          } else {
-            updatedList.push({
-              albumId: alb.id,
-              albumTitle: alb.title,
-              folderName: alb.title,
-              subfolderPath: '',
-              itemCount: mediaData?.mediaCount?.total ?? alb.mediaCount?.total ?? 0,
-              subfolderCount: mediaData?.subfolders?.length ?? alb.subfolderCount ?? 0,
-              megaUrl: alb.megaUrl || '',
-              createdAt: alb.createdAt,
+              coverImageUrl: coverUrl,
             });
           }
+        } else {
+          folderList.push({
+            albumId: alb.id,
+            albumTitle: alb.title,
+            folderName: alb.title,
+            subfolderPath: '',
+            itemCount: alb.mediaCount?.total ?? 0,
+            subfolderCount: alb.subfolderCount ?? 0,
+            megaUrl: alb.megaUrl || '',
+            createdAt: alb.createdAt,
+            coverImageUrl: coverUrl,
+          });
         }
+      }
 
-        if (deadIds.length > 0) {
-          // Filter out dead links from current display list peacefully
-          setDisplayFolders((prev) => prev.filter((f) => !deadIds.includes(f.albumId)));
-        } else if (updatedList.length > 0) {
-          setDisplayFolders(updatedList);
-        }
-      });
+      setDisplayFolders(folderList);
+      setIsLoading(false);
     } catch (err) {
       console.error('Failed to load albums:', err);
     } finally {

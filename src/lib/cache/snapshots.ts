@@ -35,14 +35,21 @@ function loadSnapshotsFromDisk(): Record<string, MegaFolderResult> {
   return memorySnapshots;
 }
 
+let snapshotWriteTimeout: NodeJS.Timeout | null = null;
+
 function saveSnapshotsToDisk(): void {
   if (!memorySnapshots) return;
   ensureDataDir();
-  try {
-    fs.writeFileSync(snapshotsFilePath, JSON.stringify(memorySnapshots, null, 2), 'utf8');
-  } catch (e) {
-    console.error('Failed to write folder snapshots to disk:', e);
-  }
+
+  // Debounce disk writes by 300ms to consolidate rapid snapshot updates without blocking event loop
+  if (snapshotWriteTimeout) clearTimeout(snapshotWriteTimeout);
+  snapshotWriteTimeout = setTimeout(() => {
+    snapshotWriteTimeout = null;
+    if (!memorySnapshots) return;
+    const payload = JSON.stringify(memorySnapshots, null, 2);
+    fs.promises.writeFile(snapshotsFilePath, payload, 'utf8')
+      .catch((e) => console.error('Failed to write folder snapshots to disk:', e));
+  }, 300);
 }
 
 export function getFolderSnapshot(cacheKey: string): MegaFolderResult | null {

@@ -33,6 +33,7 @@ interface CachedRootNode {
 const megaRootCache = new Map<string, CachedRootNode>();
 const pendingRootPromises = new Map<string, Promise<CachedRootNode>>();
 const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes in-memory cache
+const MAX_ROOT_CACHE_ENTRIES = 20; // Bound RAM usage to prevent memory leaks
 
 export function parseMegaUrl(url: string): { folderId: string; key: string } | null {
   try {
@@ -180,6 +181,13 @@ async function getOrFetchRootFolder(megaUrl: string, forceRefresh = false): Prom
       };
 
       failedFetchCooldowns.delete(megaUrl);
+      
+      // LRU Eviction: Keep max entries in RAM cache to prevent OOM
+      if (megaRootCache.size >= MAX_ROOT_CACHE_ENTRIES) {
+        const oldestKey = megaRootCache.keys().next().value;
+        if (oldestKey) megaRootCache.delete(oldestKey);
+      }
+
       megaRootCache.set(megaUrl, entry);
       return entry;
     } catch (err) {
@@ -304,9 +312,11 @@ export async function fetchMegaFolderMedia(
     let imageCount = 0;
     let videoCount = 0;
 
-    // Load any previously captured video thumbnails and favorites from database for this album
-    const videoThumbnails = await getVideoThumbnailsForAlbum(albumId);
-    const favHandles = await getFavoriteHandles(albumId);
+    // Load previously captured video thumbnails and favorites concurrently from database
+    const [videoThumbnails, favHandles] = await Promise.all([
+      getVideoThumbnailsForAlbum(albumId),
+      getFavoriteHandles(albumId),
+    ]);
 
     if (targetNode && targetNode.children && Array.isArray(targetNode.children)) {
       for (const child of targetNode.children) {

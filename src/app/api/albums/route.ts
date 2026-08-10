@@ -28,6 +28,7 @@ export async function GET() {
         status: 'ACTIVE' as const,
         mediaCount: snapshot?.mediaCount ?? { total: 0, images: 0, videos: 0 },
         subfolderCount: snapshot?.subfolders?.length ?? 0,
+        subfolders: snapshot?.subfolders ?? [],
         coverUrl: snapshot?.items?.find((i) => i.mediaType === 'IMAGE')?.streamUrl ?? snapshot?.items[0]?.thumbnailUrl ?? alb.cover_image_url ?? null,
       };
     });

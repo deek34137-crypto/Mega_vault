@@ -27,19 +27,27 @@ function getInstanceSecret(): string {
   return instanceSecretCache;
 }
 
-// Encryption Helper — requires ENCRYPTION_KEY or COOKIE_SECRET
+let primaryEncryptionKeyCache: Buffer | null = null;
+let fallbackEncryptionKeyCache: Buffer | null = null;
+let legacyEncryptionKeyCache: Buffer | null = null;
+
+// Encryption Helper — requires ENCRYPTION_KEY or COOKIE_SECRET (cached in RAM to prevent scryptSync CPU overhead)
 function getEncryptionKey(): Buffer {
+  if (primaryEncryptionKeyCache) return primaryEncryptionKeyCache;
   const envKey = process.env.ENCRYPTION_KEY?.trim();
   if (envKey) {
     if (envKey.length === 64 && /^[0-9a-fA-F]{64}$/.test(envKey)) {
-      return Buffer.from(envKey, 'hex');
+      primaryEncryptionKeyCache = Buffer.from(envKey, 'hex');
+      return primaryEncryptionKeyCache;
     }
     // If ENCRYPTION_KEY is provided as a plain passphrase, hash it deterministically to 32 bytes
-    return crypto.createHash('sha256').update(envKey).digest();
+    primaryEncryptionKeyCache = crypto.createHash('sha256').update(envKey).digest();
+    return primaryEncryptionKeyCache;
   }
 
   const secret = getInstanceSecret();
-  return crypto.scryptSync(secret, 'megavault-salt', 32);
+  primaryEncryptionKeyCache = crypto.scryptSync(secret, 'megavault-salt', 32);
+  return primaryEncryptionKeyCache;
 }
 
 function encryptText(text: string): string {
@@ -58,13 +66,17 @@ function encryptText(text: string): string {
 }
 
 function getFallbackEncryptionKey(): Buffer {
+  if (fallbackEncryptionKeyCache) return fallbackEncryptionKeyCache;
   const secret = getInstanceSecret();
-  return crypto.scryptSync(secret, 'megavault-salt', 32);
+  fallbackEncryptionKeyCache = crypto.scryptSync(secret, 'megavault-salt', 32);
+  return fallbackEncryptionKeyCache;
 }
 
 function getLegacyFallbackEncryptionKey(): Buffer {
+  if (legacyEncryptionKeyCache) return legacyEncryptionKeyCache;
   const legacySecret = 'megavault-default-fallback-secret-key-32-chars';
-  return crypto.scryptSync(legacySecret, 'megavault-salt', 32);
+  legacyEncryptionKeyCache = crypto.scryptSync(legacySecret, 'megavault-salt', 32);
+  return legacyEncryptionKeyCache;
 }
 
 function decryptText(encryptedText: string): string {
@@ -169,12 +181,21 @@ async function ensureTursoSchema(client: Client): Promise<void> {
       created_at TEXT NOT NULL
     );
   `);
-  // Non-destructive migrations: add updated_at and cover_image_url if they don't exist yet
+  // Non-destructive migrations & performance indexes
   try {
     await client.execute(`ALTER TABLE albums ADD COLUMN updated_at TEXT;`);
   } catch {}
   try {
     await client.execute(`ALTER TABLE albums ADD COLUMN cover_image_url TEXT;`);
+  } catch {}
+  try {
+    await client.execute(`CREATE INDEX IF NOT EXISTS idx_video_thumbnails_album ON video_thumbnails(album_id);`);
+  } catch {}
+  try {
+    await client.execute(`CREATE INDEX IF NOT EXISTS idx_favorites_album ON favorites(album_id);`);
+  } catch {}
+  try {
+    await client.execute(`CREATE INDEX IF NOT EXISTS idx_albums_created_at ON albums(created_at);`);
   } catch {}
   tursoInitialized = true;
 }
@@ -212,6 +233,9 @@ function getLocalDb(): Database.Database {
         thumbnail_url TEXT,
         created_at TEXT NOT NULL
       );
+      CREATE INDEX IF NOT EXISTS idx_video_thumbnails_album ON video_thumbnails(album_id);
+      CREATE INDEX IF NOT EXISTS idx_favorites_album ON favorites(album_id);
+      CREATE INDEX IF NOT EXISTS idx_albums_created_at ON albums(created_at);
     `);
 
     try {
@@ -241,11 +265,8 @@ function ensureDataDir(): void {
 
 function syncBackup(albums: DbAlbum[]): void {
   ensureDataDir();
-  try {
-    fs.writeFileSync(backupFilePath, JSON.stringify(albums, null, 2), 'utf8');
-  } catch (e) {
-    console.error('Failed to write albums backup:', e);
-  }
+  fs.promises.writeFile(backupFilePath, JSON.stringify(albums, null, 2), 'utf8')
+    .catch((e) => console.error('Failed to write albums backup:', e));
 }
 
 function loadBackup(): DbAlbum[] {
@@ -600,11 +621,8 @@ const favoritesBackupFilePath = path.join(dataDir, 'favorites_backup.json');
 
 function syncFavoritesBackup(favorites: DbFavorite[]): void {
   ensureDataDir();
-  try {
-    fs.writeFileSync(favoritesBackupFilePath, JSON.stringify(favorites, null, 2), 'utf8');
-  } catch (e) {
-    console.error('Failed to write favorites backup:', e);
-  }
+  fs.promises.writeFile(favoritesBackupFilePath, JSON.stringify(favorites, null, 2), 'utf8')
+    .catch((e) => console.error('Failed to write favorites backup:', e));
 }
 
 function loadFavoritesBackup(): DbFavorite[] {
