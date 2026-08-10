@@ -31,8 +31,8 @@ export const Footer: React.FC = () => {
 
           {/* Right copyright */}
           <div className="flex items-center space-x-4 text-xs text-zinc-500">
-            <Link href="/brand" className="hover:text-blue-400 font-medium transition-colors">
-              Brand Guidelines
+            <Link href="/settings#brand-identity" className="hover:text-blue-400 font-medium transition-colors">
+              Brand Assets & Specs
             </Link>
             <span>•</span>
             <p className="flex items-center gap-1">

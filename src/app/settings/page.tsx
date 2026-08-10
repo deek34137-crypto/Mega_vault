@@ -21,7 +21,24 @@ import {
   RefreshCw,
   Sparkles,
   FolderPlus,
+  Globe,
+  Palette,
+  Type,
+  LayoutGrid,
+  Maximize2,
+  Minimize2,
+  CheckCircle2,
+  XCircle,
+  ShieldCheck,
 } from 'lucide-react';
+import {
+  PrimaryLogoSvg,
+  LogomarkStandaloneSvg,
+  WordmarkSvg,
+  HorizontalLockupSvg,
+  StackedLockupSvg,
+  MonochromeLockupSvg,
+} from '@/components/brand/LogoVariants';
 
 interface SavedLink {
   id: string;
@@ -562,29 +579,169 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* Section 5: MEGA Connection */}
-        <div className="glass-panel p-6 rounded-3xl border border-zinc-800/80">
-          <div className="flex items-center space-x-3 mb-6">
-            <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-              <HardDrive className="w-5 h-5 text-red-400" />
+        {/* Section 6: Brand Identity & Design System (Embedded Section) */}
+        <div id="brand-identity" className="glass-panel p-6 sm:p-8 rounded-3xl border border-zinc-800/80 space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800/80 pb-4">
+            <div className="flex items-center space-x-3">
+              <div className="p-2.5 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                <Sparkles className="w-5 h-5 text-cyan-400" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white">Brand Identity & Web Assets</h3>
+                <p className="text-xs text-zinc-400">
+                  Official logo system lockups, browser identity files, color swatches, and design guidelines
+                </p>
+              </div>
             </div>
-            <div>
-              <h3 className="text-lg font-bold text-white">MEGA Integration</h3>
-              <p className="text-xs text-zinc-400">Zero-storage decrypted metadata streaming status</p>
+
+            <a
+              href="/favicon.svg"
+              download="megavault-brand-kit.svg"
+              className="px-3.5 py-1.5 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 text-xs font-semibold flex items-center space-x-1.5 self-start transition-all"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Export SVG Brand Kit</span>
+            </a>
+          </div>
+
+          {/* Logo System Grid */}
+          <div className="space-y-4">
+            <h4 className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-blue-400" />
+              <span>Logo System Variants</span>
+            </h4>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Primary Logo */}
+              <div className="p-5 rounded-2xl bg-zinc-900/60 border border-zinc-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded border border-blue-500/20">
+                    Primary Logo
+                  </span>
+                  <span className="text-[10px] font-mono text-zinc-500">Full Emblem + Wordmark</span>
+                </div>
+                <div className="p-4 rounded-xl bg-zinc-950 flex items-center justify-center border border-zinc-800/80 min-h-[100px]">
+                  <PrimaryLogoSvg theme="dark" size={38} />
+                </div>
+              </div>
+
+              {/* Logomark */}
+              <div className="p-5 rounded-2xl bg-zinc-900/60 border border-zinc-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
+                    Standalone Logomark
+                  </span>
+                  <span className="text-[10px] font-mono text-zinc-500">Icon Emblem Only</span>
+                </div>
+                <div className="p-4 rounded-xl bg-zinc-950 flex items-center justify-center border border-zinc-800/80 min-h-[100px]">
+                  <LogomarkStandaloneSvg size={48} mode="gradient" />
+                </div>
+              </div>
+
+              {/* Wordmark */}
+              <div className="p-5 rounded-2xl bg-zinc-900/60 border border-zinc-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">
+                    Brand Wordmark
+                  </span>
+                  <span className="text-[10px] font-mono text-zinc-500">Typography Only</span>
+                </div>
+                <div className="p-4 rounded-xl bg-zinc-950 flex items-center justify-center border border-zinc-800/80 min-h-[100px]">
+                  <WordmarkSvg theme="dark" />
+                </div>
+              </div>
+
+              {/* Stacked Lockup */}
+              <div className="p-5 rounded-2xl bg-zinc-900/60 border border-zinc-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/20">
+                    Stacked Vertical
+                  </span>
+                  <span className="text-[10px] font-mono text-zinc-500">Centered Splash / Mobile</span>
+                </div>
+                <div className="p-4 rounded-xl bg-zinc-950 flex items-center justify-center border border-zinc-800/80 min-h-[100px]">
+                  <StackedLockupSvg theme="dark" />
+                </div>
+              </div>
             </div>
           </div>
 
-          <div className="p-4 rounded-2xl bg-emerald-500/5 border border-emerald-500/20 flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <CheckCircle className="w-5 h-5 text-emerald-400" />
-              <div>
-                <span className="text-sm font-bold text-emerald-300 block">MEGA Engine Active</span>
-                <span className="text-xs text-zinc-400">Ready to parse folder links & decrypt stream buffers</span>
+          {/* Browser / Web Files */}
+          <div className="space-y-4 pt-4 border-t border-zinc-800/80">
+            <h4 className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-2">
+              <Globe className="w-4 h-4 text-indigo-400" />
+              <span>Browser & Web Assets</span>
+            </h4>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+              <div className="p-3.5 rounded-xl bg-zinc-900/60 border border-zinc-800 flex items-center justify-between">
+                <div>
+                  <span className="font-semibold text-white block">favicon.svg</span>
+                  <span className="text-[10px] text-zinc-400">Scalable Vector Icon</span>
+                </div>
+                <a href="/favicon.svg" download className="p-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-blue-400">
+                  <Download className="w-3.5 h-3.5" />
+                </a>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-zinc-900/60 border border-zinc-800 flex items-center justify-between">
+                <div>
+                  <span className="font-semibold text-white block">Apple Touch Icon</span>
+                  <span className="text-[10px] text-zinc-400">180x180 iOS Launcher</span>
+                </div>
+                <a href="/apple-touch-icon.png" download className="p-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-indigo-400">
+                  <Download className="w-3.5 h-3.5" />
+                </a>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-zinc-900/60 border border-zinc-800 flex items-center justify-between">
+                <div>
+                  <span className="font-semibold text-white block">OG Share Card</span>
+                  <span className="text-[10px] text-zinc-400">1200x630 Social Preview</span>
+                </div>
+                <a href="/og-image.jpg" download className="p-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-cyan-400">
+                  <Download className="w-3.5 h-3.5" />
+                </a>
               </div>
             </div>
-            <span className="text-xs font-mono text-zinc-400 bg-zinc-900 px-2.5 py-1 rounded-md border border-zinc-800">
-              Protocol API v2
-            </span>
+          </div>
+
+          {/* Color Swatches */}
+          <div className="space-y-4 pt-4 border-t border-zinc-800/80">
+            <h4 className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-2">
+              <Palette className="w-4 h-4 text-cyan-400" />
+              <span>Core Color Swatches</span>
+            </h4>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+              <div className="p-3 rounded-xl bg-zinc-900/60 border border-zinc-800 space-y-2">
+                <div className="h-10 rounded-lg bg-blue-500 flex items-end p-1.5">
+                  <span className="text-[9px] font-mono font-bold text-white bg-black/40 px-1 rounded">#3B82F6</span>
+                </div>
+                <span className="text-[11px] font-semibold text-zinc-200 block">Electric Blue</span>
+              </div>
+
+              <div className="p-3 rounded-xl bg-zinc-900/60 border border-zinc-800 space-y-2">
+                <div className="h-10 rounded-lg bg-indigo-500 flex items-end p-1.5">
+                  <span className="text-[9px] font-mono font-bold text-white bg-black/40 px-1 rounded">#6366F1</span>
+                </div>
+                <span className="text-[11px] font-semibold text-zinc-200 block">Vault Indigo</span>
+              </div>
+
+              <div className="p-3 rounded-xl bg-zinc-900/60 border border-zinc-800 space-y-2">
+                <div className="h-10 rounded-lg bg-cyan-500 flex items-end p-1.5">
+                  <span className="text-[9px] font-mono font-bold text-white bg-black/40 px-1 rounded">#06B6D4</span>
+                </div>
+                <span className="text-[11px] font-semibold text-zinc-200 block">Cyan Sparkle</span>
+              </div>
+
+              <div className="p-3 rounded-xl bg-zinc-900/60 border border-zinc-800 space-y-2">
+                <div className="h-10 rounded-lg bg-zinc-950 border border-zinc-800 flex items-end p-1.5">
+                  <span className="text-[9px] font-mono font-bold text-zinc-400 bg-black/40 px-1 rounded">#09090B</span>
+                </div>
+                <span className="text-[11px] font-semibold text-zinc-200 block">Obsidian Surface</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>

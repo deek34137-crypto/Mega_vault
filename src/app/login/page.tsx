@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Sparkles, Lock, ArrowRight, ShieldCheck, Key } from 'lucide-react';
 import { APP_NAME } from '@/lib/constants';
+import { StackedLockupSvg } from '@/components/brand/LogoVariants';
 
 export default function LoginPage() {
   const [password, setPassword] = useState('');
@@ -47,14 +48,8 @@ export default function LoginPage() {
 
       <div className="w-full max-w-md relative z-10">
         {/* Logo & Brand Header */}
-        <div className="text-center mb-8">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-blue-600 via-indigo-500 to-cyan-400 p-[1px] shadow-xl shadow-blue-500/20 mx-auto mb-4">
-            <div className="w-full h-full bg-zinc-950 rounded-[15px] flex items-center justify-center">
-              <Sparkles className="w-7 h-7 text-blue-400" />
-            </div>
-          </div>
-          <h1 className="text-3xl font-extrabold text-white tracking-tight">{APP_NAME}</h1>
-          <p className="text-xs text-zinc-400 mt-1 font-medium">Private Family & Personal Media Index</p>
+        <div className="text-center mb-8 flex flex-col items-center">
+          <StackedLockupSvg theme="dark" />
         </div>
 
         {/* Login Card */}

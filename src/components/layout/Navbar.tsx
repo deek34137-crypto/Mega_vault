@@ -3,9 +3,9 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { ShieldCheck, HardDrive, Sparkles, Home, FolderHeart, Settings, LogOut } from 'lucide-react';
+import { HardDrive, Home, Settings, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
-import { APP_NAME } from '@/lib/constants';
+import { PrimaryLogoSvg } from '@/components/brand/LogoVariants';
 
 export const Navbar: React.FC = () => {
   const pathname = usePathname();
@@ -26,33 +26,19 @@ export const Navbar: React.FC = () => {
 
   const navLinks = [
     { label: 'Gallery', href: '/', icon: Home },
-    { label: 'Brand Identity', href: '/brand', icon: Sparkles },
     { label: 'Settings', href: '/settings', icon: Settings },
   ];
 
   return (
-    <header className="sticky top-0 z-50 glass-nav transition-all duration-200">
+    <header className="sticky top-0 z-50 glass-nav transition-all duration-200 border-b border-zinc-800/60 bg-zinc-950/80 backdrop-blur-xl">
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
-          {/* Logo & Brand */}
-          <Link href="/" className="flex items-center space-x-2.5 sm:space-x-3 group">
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-500 to-cyan-400 p-[1px] shadow-lg shadow-blue-500/20 group-hover:scale-105 transition-transform duration-300">
-              <div className="w-full h-full bg-zinc-950 rounded-[11px] flex items-center justify-center">
-                <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 text-blue-400 group-hover:rotate-12 transition-transform duration-300" />
-              </div>
-            </div>
-            <div>
-              <div className="flex items-center space-x-1.5">
-                <span className="font-bold text-base sm:text-lg text-white tracking-tight">{APP_NAME}</span>
-                <span className="text-[9px] sm:text-[10px] uppercase tracking-widest font-bold px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                  Private
-                </span>
-              </div>
-              <span className="text-[10px] sm:text-xs text-zinc-400 block -mt-1 font-medium">MEGA Index</span>
-            </div>
+          {/* Logo & Brand Header */}
+          <Link href="/" className="flex items-center group transition-transform duration-200 hover:opacity-90">
+            <PrimaryLogoSvg theme="dark" size={38} />
           </Link>
 
-          {/* Navigation Items */}
+          {/* Clean Navigation Items */}
           <nav className="flex items-center space-x-1 sm:space-x-2">
             {navLinks.map((link) => {
               const Icon = link.icon;
@@ -63,7 +49,7 @@ export const Navbar: React.FC = () => {
                   key={link.href}
                   href={link.href}
                   className={cn(
-                    'flex items-center space-x-1.5 sm:space-x-2 px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl text-xs sm:text-sm font-medium transition-all duration-200',
+                    'flex items-center space-x-1.5 sm:space-x-2 px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-200',
                     isActive
                       ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30 shadow-sm shadow-blue-500/10'
                       : 'text-zinc-400 hover:text-white hover:bg-zinc-800/50'
@@ -78,7 +64,7 @@ export const Navbar: React.FC = () => {
 
           {/* Right Controls & Logout */}
           <div className="flex items-center space-x-3">
-            <div className="hidden sm:flex items-center space-x-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium">
+            <div className="hidden sm:flex items-center space-x-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold">
               <HardDrive className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
               <span>MEGA Connected</span>
             </div>
@@ -86,7 +72,7 @@ export const Navbar: React.FC = () => {
             <button
               onClick={handleLogout}
               title="Lock Vault & Logout"
-              className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white transition-colors"
+              className="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-white transition-colors"
             >
               <LogOut className="w-4 h-4" />
             </button>

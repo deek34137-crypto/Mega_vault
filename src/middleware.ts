@@ -16,8 +16,6 @@ function getSecretKey(): Uint8Array {
   return new TextEncoder().encode(secret);
 }
 
-const SECRET_KEY = getSecretKey();
-
 const PUBLIC_PATHS = ['/login', '/api/auth/login', '/_next', '/favicon.ico'];
 
 export async function middleware(request: NextRequest) {
@@ -35,7 +33,8 @@ export async function middleware(request: NextRequest) {
   }
 
   try {
-    await jwtVerify(token, SECRET_KEY);
+    const secretKey = getSecretKey();
+    await jwtVerify(token, secretKey);
     return NextResponse.next();
   } catch {
     const loginUrl = new URL('/login', request.url);
