@@ -2,13 +2,16 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Play, Film, Image as ImageIcon } from 'lucide-react';
+import { Play, Film, Image as ImageIcon, Check } from 'lucide-react';
 import { MediaItem } from '@/types';
 import { formatBytes } from '@/lib/utils/cn';
 
 interface MediaCardProps {
   media: MediaItem;
   onClick?: (media: MediaItem) => void;
+  isSelectMode?: boolean;
+  isSelected?: boolean;
+  onSelectToggle?: (media: MediaItem) => void;
 }
 
 function getGradientFromFileName(name: string): string {
@@ -28,7 +31,13 @@ function getGradientFromFileName(name: string): string {
   return gradients[index];
 }
 
-export const MediaCard: React.FC<MediaCardProps> = ({ media, onClick }) => {
+export const MediaCard: React.FC<MediaCardProps> = ({
+  media,
+  onClick,
+  isSelectMode = false,
+  isSelected = false,
+  onSelectToggle,
+}) => {
   const cardRef = useRef<HTMLDivElement>(null);
   const [isVisible, setIsVisible] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
@@ -62,9 +71,32 @@ export const MediaCard: React.FC<MediaCardProps> = ({ media, onClick }) => {
       ref={cardRef}
       whileHover={{ y: -3, scale: 1.02 }}
       transition={{ duration: 0.2 }}
-      onClick={() => onClick && onClick(media)}
-      className="glass-panel glass-panel-hover rounded-2xl overflow-hidden group cursor-pointer border border-zinc-800/80 relative bg-zinc-950 flex flex-col h-full shadow-md"
+      onClick={() => {
+        if (isSelectMode && onSelectToggle) {
+          onSelectToggle(media);
+        } else if (onClick) {
+          onClick(media);
+        }
+      }}
+      className={`glass-panel glass-panel-hover rounded-2xl overflow-hidden group cursor-pointer border relative bg-zinc-950 flex flex-col h-full shadow-md transition-all ${
+        isSelected ? 'border-blue-500 ring-2 ring-blue-500/50' : 'border-zinc-800/80'
+      }`}
     >
+      {/* Checkbox Badge in Select Mode */}
+      {(isSelectMode || isSelected) && (
+        <div className="absolute top-2.5 right-2.5 z-30">
+          <div
+            className={`w-6 h-6 rounded-lg flex items-center justify-center border transition-all ${
+              isSelected
+                ? 'bg-blue-600 border-blue-400 text-white shadow-lg'
+                : 'bg-black/60 border-white/40 text-transparent'
+            }`}
+          >
+            <Check className="w-4 h-4 stroke-[3]" />
+          </div>
+        </div>
+      )}
+
       {/* Media Cover / Preview Container */}
       <div className="relative aspect-square w-full bg-zinc-900 overflow-hidden flex flex-col justify-between">
         {!isVideo && isVisible && media.streamUrl && !imageError ? (
