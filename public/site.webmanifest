@@ -1,0 +1,29 @@
+{
+  "name": "MegaVault - Private Media Vault",
+  "short_name": "MegaVault",
+  "description": "Encrypted, zero-storage private personal media index and vault.",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/favicon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    }
+  ],
+  "theme_color": "#09090b",
+  "background_color": "#09090b",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait"
+}

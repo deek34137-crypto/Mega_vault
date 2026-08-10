@@ -57,11 +57,10 @@ export default function HomePage() {
       } catch (e) {}
 
       if (loadedAlbums.length > 0) {
-        // Automatically sync loaded albums to browser LocalStorage cache
+        // Automatically sync loaded albums to browser LocalStorage cache (sanitized without raw decryption keys)
         const cacheItems = loadedAlbums.map((a) => ({
           id: a.id,
           title: a.title,
-          megaUrl: a.megaUrl,
           description: a.description,
         }));
         localStorage.setItem('megavault_saved_links', JSON.stringify(cacheItems));
@@ -88,30 +87,53 @@ export default function HomePage() {
       setDisplayFolders(initialDisplay);
       setIsLoading(false); // UI shows all folders immediately!
 
-      // Step 2: Asynchronously update subfolders in background without blocking initial render
-      Promise.allSettled(
-        loadedAlbums.map(async (alb) => {
-          try {
-            const mediaRes = await fetch(`/api/albums/${alb.id}/media`);
-            if (!mediaRes.ok) return null;
-            const mediaData = await mediaRes.json();
-            return { alb, mediaData };
-          } catch (e) {
-            return null;
+      // Step 2: Asynchronously update subfolders in background in small concurrency batches (max 3 at a time)
+      const fetchInBatches = async () => {
+        const results: Array<{ alb: Album; mediaData: any } | null> = [];
+        const CONCURRENCY = 3;
+        for (let i = 0; i < loadedAlbums.length; i += CONCURRENCY) {
+          const chunk = loadedAlbums.slice(i, i + CONCURRENCY);
+          const chunkResults = await Promise.allSettled(
+            chunk.map(async (alb) => {
+              try {
+                const mediaRes = await fetch(`/api/albums/${alb.id}/media`);
+                if (!mediaRes.ok) return null;
+                const mediaData = await mediaRes.json();
+                return { alb, mediaData };
+              } catch (e) {
+                return null;
+              }
+            })
+          );
+          for (const res of chunkResults) {
+            if (res.status === 'fulfilled' && res.value) {
+              results.push(res.value);
+            }
           }
-        })
-      ).then((results) => {
+        }
+        return results;
+      };
+
+      fetchInBatches().then((results) => {
         const updatedList: DisplayFolder[] = [];
         const deadIds: string[] = [];
 
-        for (const result of results) {
-          if (result.status !== 'fulfilled' || !result.value) continue;
-          const { alb, mediaData } = result.value;
+        for (const item of results) {
+          if (!item) continue;
+          const { alb, mediaData } = item;
 
           if (mediaData && mediaData.isDeadLink) {
-            // Silently delete dead/corrupted link from DB and skip displaying on homepage
-            deadIds.push(alb.id);
-            fetch(`/api/albums/${alb.id}`, { method: 'DELETE' }).catch(() => {});
+            // Keep album visible so user can manually retry or remove
+            updatedList.push({
+              albumId: alb.id,
+              albumTitle: alb.title,
+              folderName: alb.title,
+              subfolderPath: '',
+              itemCount: 0,
+              subfolderCount: 0,
+              megaUrl: alb.megaUrl || '',
+              createdAt: alb.createdAt,
+            });
             continue;
           }
 

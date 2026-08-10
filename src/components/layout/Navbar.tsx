@@ -26,6 +26,7 @@ export const Navbar: React.FC = () => {
 
   const navLinks = [
     { label: 'Gallery', href: '/', icon: Home },
+    { label: 'Brand Identity', href: '/brand', icon: Sparkles },
     { label: 'Settings', href: '/settings', icon: Settings },
   ];
 

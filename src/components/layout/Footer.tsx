@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import Link from 'next/link';
 import { Lock, HardDrive, Heart } from 'lucide-react';
 import { APP_NAME, APP_VERSION } from '@/lib/constants';
 
@@ -29,10 +30,16 @@ export const Footer: React.FC = () => {
           </div>
 
           {/* Right copyright */}
-          <p className="text-xs text-zinc-500 flex items-center gap-1">
-            <span>Built for family & friends with</span>
-            <Heart className="w-3 h-3 text-red-500 fill-red-500 inline" />
-          </p>
+          <div className="flex items-center space-x-4 text-xs text-zinc-500">
+            <Link href="/brand" className="hover:text-blue-400 font-medium transition-colors">
+              Brand Guidelines
+            </Link>
+            <span>•</span>
+            <p className="flex items-center gap-1">
+              <span>Built with</span>
+              <Heart className="w-3 h-3 text-red-500 fill-red-500 inline" />
+            </p>
+          </div>
         </div>
       </div>
     </footer>

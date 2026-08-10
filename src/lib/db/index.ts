@@ -8,6 +8,25 @@ let localDb: Database.Database | null = null;
 let tursoClient: Client | null = null;
 let tursoInitialized = false; // Guard: run CREATE TABLE only once per process
 
+import os from 'os';
+
+let instanceSecretCache: string | null = null;
+
+function getInstanceSecret(): string {
+  if (instanceSecretCache) return instanceSecretCache;
+  const secret = process.env.COOKIE_SECRET?.trim();
+  if (secret && secret.length >= 16) {
+    instanceSecretCache = secret;
+    return secret;
+  }
+  const hostInfo = `${os.hostname()}-${os.arch()}-${os.platform()}-${process.cwd()}`;
+  instanceSecretCache = crypto.createHash('sha256').update(`megavault-host-secret-${hostInfo}`).digest('hex');
+  if (process.env.NODE_ENV === 'production') {
+    console.warn('[MegaVault Security Warning] COOKIE_SECRET environment variable is missing in production. Using host-instance key.');
+  }
+  return instanceSecretCache;
+}
+
 // Encryption Helper — requires ENCRYPTION_KEY or COOKIE_SECRET
 function getEncryptionKey(): Buffer {
   const envKey = process.env.ENCRYPTION_KEY?.trim();
@@ -19,7 +38,7 @@ function getEncryptionKey(): Buffer {
     return crypto.createHash('sha256').update(envKey).digest();
   }
 
-  const secret = process.env.COOKIE_SECRET?.trim() || 'megavault-default-fallback-secret-key-32-chars';
+  const secret = getInstanceSecret();
   return crypto.scryptSync(secret, 'megavault-salt', 32);
 }
 
@@ -39,8 +58,13 @@ function encryptText(text: string): string {
 }
 
 function getFallbackEncryptionKey(): Buffer {
-  const secret = process.env.COOKIE_SECRET?.trim() || 'megavault-default-fallback-secret-key-32-chars';
+  const secret = getInstanceSecret();
   return crypto.scryptSync(secret, 'megavault-salt', 32);
+}
+
+function getLegacyFallbackEncryptionKey(): Buffer {
+  const legacySecret = 'megavault-default-fallback-secret-key-32-chars';
+  return crypto.scryptSync(legacySecret, 'megavault-salt', 32);
 }
 
 function decryptText(encryptedText: string): string {
@@ -67,7 +91,7 @@ function decryptText(encryptedText: string): string {
     decrypted += decipher.final('utf8');
     return decrypted;
   } catch (e1) {
-    // Attempt 2: Decrypt with fallback COOKIE_SECRET key
+    // Attempt 2: Decrypt with fallback COOKIE_SECRET / instance key
     try {
       const fallbackKey = getFallbackEncryptionKey();
       const decipher = crypto.createDecipheriv('aes-256-gcm', fallbackKey, iv);
@@ -76,8 +100,18 @@ function decryptText(encryptedText: string): string {
       decrypted += decipher.final('utf8');
       return decrypted;
     } catch (e2) {
-      console.error('[MegaVault] Decryption failed with both keys:', e2);
-      return encryptedText;
+      // Attempt 3: Decrypt with legacy static secret key (for existing DB records)
+      try {
+        const legacyKey = getLegacyFallbackEncryptionKey();
+        const decipher = crypto.createDecipheriv('aes-256-gcm', legacyKey, iv);
+        decipher.setAuthTag(authTag);
+        let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+        decrypted += decipher.final('utf8');
+        return decrypted;
+      } catch (e3) {
+        console.error('[MegaVault] Decryption failed with all keys:', e3);
+        return encryptedText;
+      }
     }
   }
 }

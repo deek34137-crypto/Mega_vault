@@ -5,8 +5,45 @@ import { Footer } from '@/components/layout/Footer';
 import { APP_NAME, APP_TAGLINE } from '@/lib/constants';
 
 export const metadata: Metadata = {
-  title: `${APP_NAME} - Private Personal Gallery`,
+  title: {
+    default: `${APP_NAME} - Private Personal Gallery & Vault`,
+    template: `%s | ${APP_NAME}`,
+  },
   description: APP_TAGLINE,
+  keywords: ['MegaVault', 'Media Vault', 'Encrypted Gallery', 'Private Cloud', 'MEGA Index'],
+  authors: [{ name: 'MegaVault Team' }],
+  icons: {
+    icon: [
+      { url: '/favicon.svg', type: 'image/svg+xml' },
+      { url: '/favicon.svg', type: 'image/x-icon' },
+    ],
+    apple: [
+      { url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
+    ],
+  },
+  manifest: '/site.webmanifest',
+  openGraph: {
+    title: `${APP_NAME} - Private Media Vault & Index`,
+    description: APP_TAGLINE,
+    url: 'https://megavault.app',
+    siteName: APP_NAME,
+    images: [
+      {
+        url: '/og-image.jpg',
+        width: 1200,
+        height: 630,
+        alt: 'MegaVault Brand Identity & Vault Showcase',
+      },
+    ],
+    locale: 'en_US',
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: `${APP_NAME} - Private Personal Media Vault`,
+    description: APP_TAGLINE,
+    images: ['/og-image.jpg'],
+  },
 };
 
 export default function RootLayout({

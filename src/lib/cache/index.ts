@@ -54,7 +54,9 @@ interface ImageCacheEntry {
 
 class ImageBufferCache {
   private cache = new Map<string, ImageCacheEntry>();
-  private maxEntries = 250; // Store up to 250 image buffers in RAM for instant 5ms retrieval
+  private maxEntries = 250;
+  private maxTotalBytes = 100 * 1024 * 1024; // 100 MB max total RAM budget
+  private currentTotalBytes = 0;
   private ttlMs = 60 * 60 * 1000; // 1 hour TTL
 
   get(key: string): ImageCacheEntry | null {
@@ -62,6 +64,7 @@ class ImageBufferCache {
     if (!entry) return null;
 
     if (Date.now() - entry.timestamp > this.ttlMs) {
+      this.currentTotalBytes -= entry.buffer.length;
       this.cache.delete(key);
       return null;
     }
@@ -70,16 +73,37 @@ class ImageBufferCache {
   }
 
   set(key: string, buffer: Buffer, mimeType: string): void {
-    if (this.cache.size >= this.maxEntries) {
-      // LRU eviction: delete oldest entry
-      const oldestKey = this.cache.keys().next().value;
-      if (oldestKey) this.cache.delete(oldestKey);
+    // If updating an existing key, subtract old buffer size first
+    const existing = this.cache.get(key);
+    if (existing) {
+      this.currentTotalBytes -= existing.buffer.length;
+      this.cache.delete(key);
     }
+
+    // Evict oldest items until under byte limit and count limit
+    while (
+      (this.currentTotalBytes + buffer.length > this.maxTotalBytes || this.cache.size >= this.maxEntries) &&
+      this.cache.size > 0
+    ) {
+      const oldestKey = this.cache.keys().next().value;
+      if (oldestKey) {
+        const oldestEntry = this.cache.get(oldestKey);
+        if (oldestEntry) {
+          this.currentTotalBytes -= oldestEntry.buffer.length;
+        }
+        this.cache.delete(oldestKey);
+      } else {
+        break;
+      }
+    }
+
     this.cache.set(key, { buffer, mimeType, timestamp: Date.now() });
+    this.currentTotalBytes += buffer.length;
   }
 
   clearAll(): void {
     this.cache.clear();
+    this.currentTotalBytes = 0;
   }
 }
 
@@ -94,7 +118,9 @@ interface VideoChunkEntry {
 
 class VideoChunkCache {
   private cache = new Map<string, VideoChunkEntry>();
-  private maxEntries = 40; // Cache up to 40 video initial chunks in RAM (~160MB max)
+  private maxEntries = 40;
+  private maxTotalBytes = 150 * 1024 * 1024; // 150 MB max total RAM budget
+  private currentTotalBytes = 0;
   private ttlMs = 2 * 60 * 60 * 1000; // 2 hours TTL
 
   get(key: string): VideoChunkEntry | null {
@@ -102,6 +128,7 @@ class VideoChunkCache {
     if (!entry) return null;
 
     if (Date.now() - entry.timestamp > this.ttlMs) {
+      this.currentTotalBytes -= entry.buffer.length;
       this.cache.delete(key);
       return null;
     }
@@ -110,17 +137,38 @@ class VideoChunkCache {
   }
 
   set(key: string, buffer: Buffer, mimeType: string, fileSize: number): void {
-    if (this.cache.size >= this.maxEntries) {
-      const oldestKey = this.cache.keys().next().value;
-      if (oldestKey) this.cache.delete(oldestKey);
+    const existing = this.cache.get(key);
+    if (existing) {
+      this.currentTotalBytes -= existing.buffer.length;
+      this.cache.delete(key);
     }
+
+    while (
+      (this.currentTotalBytes + buffer.length > this.maxTotalBytes || this.cache.size >= this.maxEntries) &&
+      this.cache.size > 0
+    ) {
+      const oldestKey = this.cache.keys().next().value;
+      if (oldestKey) {
+        const oldestEntry = this.cache.get(oldestKey);
+        if (oldestEntry) {
+          this.currentTotalBytes -= oldestEntry.buffer.length;
+        }
+        this.cache.delete(oldestKey);
+      } else {
+        break;
+      }
+    }
+
     this.cache.set(key, { buffer, mimeType, fileSize, timestamp: Date.now() });
+    this.currentTotalBytes += buffer.length;
   }
 
   clearAll(): void {
     this.cache.clear();
+    this.currentTotalBytes = 0;
   }
 }
 
 export const videoChunkCache = new VideoChunkCache();
+
 

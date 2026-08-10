@@ -391,20 +391,7 @@ export async function fetchMegaFolderMedia(
       errMsg.includes('blocked') ||
       errMsg.includes('access denied');
 
-    if (isExplicitDeadLink) {
-      // Auto-delete dead / corrupted / invalid password links permanently from Turso & Local DB
-      deleteAlbum(albumId).catch((err) => console.error('Failed to auto-delete dead album link:', err));
-      return {
-        albumId,
-        items: [],
-        subfolders: [],
-        mediaCount: { total: 0, images: 0, videos: 0 },
-        isDeadLink: true,
-        errorMessage: 'MEGA folder link is no longer accessible or has been deleted.',
-      };
-    }
-
-    // Temporary network error / cold start delay: Fall back to persistent snapshot!
+    // Temporary network error / cold start delay / rate limit: Fall back to persistent snapshot!
     const snapshot = getFolderSnapshot(cacheKey);
     if (snapshot) {
       console.log(`[MegaVault] Returning disk snapshot for ${cacheKey} due to temporary MEGA fetch failure.`);
@@ -412,6 +399,17 @@ export async function fetchMegaFolderMedia(
         ...snapshot,
         isFromSnapshot: true,
         errorMessage: 'Using saved folder snapshot (live MEGA sync delayed).',
+      };
+    }
+
+    if (isExplicitDeadLink) {
+      return {
+        albumId,
+        items: [],
+        subfolders: [],
+        mediaCount: { total: 0, images: 0, videos: 0 },
+        isDeadLink: true,
+        errorMessage: 'MEGA folder link is currently inaccessible or deleted. Click "Refresh Album" to retry.',
       };
     }
 

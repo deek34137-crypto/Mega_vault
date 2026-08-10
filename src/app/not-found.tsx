@@ -1,16 +1,13 @@
-'use client';
-
 import React from 'react';
 import Link from 'next/link';
-import { PageContainer } from '@/components/layout/PageContainer';
 import { Home, AlertCircle } from 'lucide-react';
 
 export default function NotFound() {
   return (
-    <PageContainer className="flex items-center justify-center min-h-[70vh]">
-      <div className="glass-panel p-12 rounded-3xl text-center max-w-lg border border-zinc-800 shadow-2xl">
+    <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-4">
+      <div className="p-12 rounded-3xl text-center max-w-lg border border-zinc-800 bg-zinc-900/60 shadow-2xl">
         <div className="w-16 h-16 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 flex items-center justify-center mx-auto mb-4">
-          <AlertCircle className="w-8 h-8" />
+          <AlertCircle className="w-8 h-8 text-red-400" />
         </div>
         <h1 className="text-4xl font-extrabold text-white mb-2">404</h1>
         <h2 className="text-xl font-bold text-zinc-200 mb-2">Page Not Found</h2>
@@ -25,6 +22,7 @@ export default function NotFound() {
           <span>Return Home</span>
         </Link>
       </div>
-    </PageContainer>
+    </div>
   );
 }
+
