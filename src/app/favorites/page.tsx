@@ -6,6 +6,7 @@ import { PageContainer } from '@/components/layout/PageContainer';
 import { MediaCard } from '@/components/gallery/MediaCard';
 import { VideoPlayer } from '@/components/viewer/VideoPlayer';
 import { ImageLightbox } from '@/components/viewer/ImageLightbox';
+import { Pagination } from '@/components/ui/Pagination';
 import { MediaItem, FilterMediaType } from '@/types';
 import {
   ArrowLeft,
@@ -109,6 +110,12 @@ export default function FavoritesPage() {
     (f) => f.mimeType !== 'folder' && (f.mediaType as string) !== 'ALBUM' && (f.mediaType as string) !== 'SUBFOLDER'
   );
 
+  const [currentPage, setCurrentPage] = useState(1);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, mediaTypeFilter]);
+
   const filteredFavorites = mediaFavorites.filter((m) => {
     const matchesSearch = m.fileName.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesType =
@@ -120,7 +127,10 @@ export default function FavoritesPage() {
     return matchesSearch && matchesType;
   });
 
-  const visibleMedia = filteredFavorites.slice(0, visibleCount);
+  const totalPages = Math.ceil(filteredFavorites.length / ITEMS_PER_PAGE);
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const pageMedia = filteredFavorites.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+
   const photoCount = mediaFavorites.filter((m) => m.mediaType === 'IMAGE').length;
   const videoCount = mediaFavorites.filter((m) => m.mediaType === 'VIDEO').length;
   const selectedMedia = selectedIndex !== null ? filteredFavorites[selectedIndex] : null;
@@ -469,8 +479,21 @@ export default function FavoritesPage() {
         </div>
       ) : (
         <>
+          {/* Top Pagination Control */}
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={filteredFavorites.length}
+            itemsPerPage={ITEMS_PER_PAGE}
+            onPageChange={(p) => {
+              setCurrentPage(p);
+              window.scrollTo({ top: 300, behavior: 'smooth' });
+            }}
+            accentColor="amber"
+          />
+
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 sm:gap-4">
-            {visibleMedia.map((media) => {
+            {pageMedia.map((media) => {
               const filteredIdx = filteredFavorites.findIndex((m) => m.id === media.id);
               return (
                 <MediaCard
@@ -486,12 +509,18 @@ export default function FavoritesPage() {
             })}
           </div>
 
-          {visibleCount < filteredFavorites.length && (
-            <div ref={sentinelRef} className="py-8 text-center flex items-center justify-center space-x-2 text-zinc-400 text-xs">
-              <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
-              <span>Loading more favorites on scroll... ({visibleCount} of {filteredFavorites.length})</span>
-            </div>
-          )}
+          {/* Bottom Pagination Control */}
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={filteredFavorites.length}
+            itemsPerPage={ITEMS_PER_PAGE}
+            onPageChange={(p) => {
+              setCurrentPage(p);
+              window.scrollTo({ top: 300, behavior: 'smooth' });
+            }}
+            accentColor="amber"
+          />
         </>
       )}
 

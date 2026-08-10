@@ -7,6 +7,7 @@ import { PageContainer } from '@/components/layout/PageContainer';
 import { MediaCard } from '@/components/gallery/MediaCard';
 import { VideoPlayer } from '@/components/viewer/VideoPlayer';
 import { ImageLightbox } from '@/components/viewer/ImageLightbox';
+import { Pagination } from '@/components/ui/Pagination';
 import { Album, MediaItem, FilterMediaType } from '@/types';
 import {
   ArrowLeft,
@@ -199,9 +200,11 @@ function AlbumContent() {
     return () => observer.disconnect();
   }, [mediaItems.length]);
 
-  // Reset pagination count on search or filter changes
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // Reset pagination on search or filter changes
   useEffect(() => {
-    setVisibleCount(ITEMS_PER_PAGE);
+    setCurrentPage(1);
   }, [searchQuery, mediaTypeFilter]);
 
   const handleRefresh = async () => {
@@ -231,7 +234,9 @@ function AlbumContent() {
     return matchesSearch && matchesType;
   });
 
-  const visibleMedia = filteredMedia.slice(0, visibleCount);
+  const totalPages = Math.ceil(filteredMedia.length / ITEMS_PER_PAGE);
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const pageMedia = filteredMedia.slice(startIndex, startIndex + ITEMS_PER_PAGE);
 
   const photoCount = mediaItems.filter((m) => m.mediaType === 'IMAGE').length;
   const videoCount = mediaItems.filter((m) => m.mediaType === 'VIDEO').length;
@@ -603,10 +608,10 @@ function AlbumContent() {
         </div>
       )}
 
-      {/* Media Grid (Paginated via Infinite Scroll) */}
+      {/* Media Grid (Numbered Page Pagination) */}
       {isLoading ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5 sm:gap-4">
-          {[1, 2, 3, 4, 5, 6].map((i) => (
+          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((i) => (
             <div key={i} className="aspect-square rounded-2xl bg-zinc-900/60 animate-pulse border border-zinc-800" />
           ))}
         </div>
@@ -617,8 +622,21 @@ function AlbumContent() {
         </div>
       ) : (
         <>
+          {/* Top Pagination Control */}
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={filteredMedia.length}
+            itemsPerPage={ITEMS_PER_PAGE}
+            onPageChange={(p) => {
+              setCurrentPage(p);
+              window.scrollTo({ top: 300, behavior: 'smooth' });
+            }}
+            accentColor="blue"
+          />
+
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5 sm:gap-4">
-            {visibleMedia.map((media) => {
+            {pageMedia.map((media) => {
               const filteredIdx = filteredMedia.findIndex((m) => m.id === media.id);
               return (
                 <MediaCard
@@ -633,13 +651,18 @@ function AlbumContent() {
             })}
           </div>
 
-          {/* Infinite Scroll Sentinel */}
-          {visibleCount < filteredMedia.length && (
-            <div ref={sentinelRef} className="py-8 text-center flex items-center justify-center space-x-2 text-zinc-400 text-xs">
-              <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
-              <span>Loading more media on scroll... ({visibleCount} of {filteredMedia.length})</span>
-            </div>
-          )}
+          {/* Bottom Pagination Control */}
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={filteredMedia.length}
+            itemsPerPage={ITEMS_PER_PAGE}
+            onPageChange={(p) => {
+              setCurrentPage(p);
+              window.scrollTo({ top: 300, behavior: 'smooth' });
+            }}
+            accentColor="blue"
+          />
         </>
       )}
 
