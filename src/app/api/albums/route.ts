@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getAllAlbums, createAlbum } from '@/lib/db';
-import { fetchMegaFolderMedia, parseMegaUrl } from '@/lib/mega';
+import { parseMegaUrl } from '@/lib/mega';
+import { getFolderSnapshot } from '@/lib/cache/snapshots';
 import { isAuthenticated } from '@/lib/auth';
 
 export async function GET() {
@@ -12,24 +13,24 @@ export async function GET() {
   try {
     const dbAlbums = await getAllAlbums();
 
-    // Fetch media count for each album in parallel (not sequentially)
-    const albumsWithStats = await Promise.all(
-      dbAlbums.map(async (alb) => {
-        const folderMedia = await fetchMegaFolderMedia(alb.id, alb.mega_link);
-        return {
-          id: alb.id,
-          title: alb.title,
-          description: alb.description,
-          megaUrl: alb.mega_link,
-          createdAt: alb.created_at,
-          updatedAt: alb.updated_at ?? alb.created_at,
-          status: 'ACTIVE' as const,
-          mediaCount: folderMedia.mediaCount,
-          subfolderCount: folderMedia.subfolders?.length || 0,
-          coverUrl: folderMedia.items[0]?.thumbnailUrl ?? null,
-        };
-      })
-    );
+    // Fast resolution from DB + disk snapshot (0ms network delay)
+    const albumsWithStats = dbAlbums.map((alb) => {
+      const cacheKey = `mega_media_${alb.id}_${alb.mega_link}_root`;
+      const snapshot = getFolderSnapshot(cacheKey);
+
+      return {
+        id: alb.id,
+        title: alb.title,
+        description: alb.description,
+        megaUrl: alb.mega_link,
+        createdAt: alb.created_at,
+        updatedAt: alb.updated_at ?? alb.created_at,
+        status: 'ACTIVE' as const,
+        mediaCount: snapshot?.mediaCount ?? { total: 0, images: 0, videos: 0 },
+        subfolderCount: snapshot?.subfolders?.length ?? 0,
+        coverUrl: snapshot?.items?.find((i) => i.mediaType === 'IMAGE')?.streamUrl ?? snapshot?.items[0]?.thumbnailUrl ?? alb.cover_image_url ?? null,
+      };
+    });
 
     return NextResponse.json({ albums: albumsWithStats });
   } catch (error) {

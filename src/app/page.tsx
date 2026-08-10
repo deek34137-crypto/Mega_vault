@@ -19,16 +19,45 @@ interface DisplayFolder {
   coverImageUrl?: string;
 }
 
+let cachedAlbums: Album[] = [];
+let cachedDisplayFolders: DisplayFolder[] = [];
+
 export default function HomePage() {
-  const [albums, setAlbums] = useState<Album[]>([]);
-  const [displayFolders, setDisplayFolders] = useState<DisplayFolder[]>([]);
+  const [albums, setAlbumsState] = useState<Album[]>(cachedAlbums);
+  const [displayFolders, setDisplayFoldersState] = useState<DisplayFolder[]>(cachedDisplayFolders);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'name' | 'items'>('newest');
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(cachedDisplayFolders.length === 0);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newDescription, setNewDescription] = useState('');
   const [newMegaUrl, setNewMegaUrl] = useState('');
+
+  const setAlbums = (val: Album[] | ((prev: Album[]) => Album[])) => {
+    if (typeof val === 'function') {
+      setAlbumsState((prev) => {
+        const next = val(prev);
+        cachedAlbums = next;
+        return next;
+      });
+    } else {
+      cachedAlbums = val;
+      setAlbumsState(val);
+    }
+  };
+
+  const setDisplayFolders = (val: DisplayFolder[] | ((prev: DisplayFolder[]) => DisplayFolder[])) => {
+    if (typeof val === 'function') {
+      setDisplayFoldersState((prev) => {
+        const next = val(prev);
+        cachedDisplayFolders = next;
+        return next;
+      });
+    } else {
+      cachedDisplayFolders = val;
+      setDisplayFoldersState(val);
+    }
+  };
 
   // Local Storage Restoration States
   const [hasLocalBackup, setHasLocalBackup] = useState(false);
@@ -37,7 +66,9 @@ export default function HomePage() {
 
   const loadData = useCallback(async () => {
     try {
-      setIsLoading(true);
+      if (cachedDisplayFolders.length === 0) {
+        setIsLoading(true);
+      }
       const res = await fetch('/api/albums');
       if (res.status === 401 || res.redirected) {
         window.location.href = '/login';

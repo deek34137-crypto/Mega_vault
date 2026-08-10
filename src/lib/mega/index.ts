@@ -234,6 +234,14 @@ export async function fetchMegaFolderMedia(
   if (!forceRefresh) {
     const cached = mediaCache.get<MegaFolderResult>(cacheKey);
     if (cached) return cached;
+
+    const snapshot = getFolderSnapshot(cacheKey);
+    if (snapshot && snapshot.items && snapshot.items.length > 0) {
+      mediaCache.set(cacheKey, snapshot);
+      // Asynchronously refresh in background without blocking current request
+      getOrFetchRootFolder(megaUrl).catch(() => {});
+      return snapshot;
+    }
   }
 
   // Handle mock/sample URLs gracefully for immediate UI testing
