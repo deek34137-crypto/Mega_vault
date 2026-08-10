@@ -3,7 +3,7 @@ import { MediaItem, MediaType } from '@/types';
 import { mediaCache } from '@/lib/cache';
 import { getFolderSnapshot, saveFolderSnapshot, removeFolderSnapshot } from '@/lib/cache/snapshots';
 import { SUPPORTED_IMAGE_EXTENSIONS, SUPPORTED_VIDEO_EXTENSIONS, MOCK_MEDIA } from '@/lib/constants';
-import { getVideoThumbnailsForAlbum, updateAlbumCoverImage, deleteAlbum } from '@/lib/db';
+import { getVideoThumbnailsForAlbum, updateAlbumCoverImage, deleteAlbum, getFavoriteHandles } from '@/lib/db';
 
 export interface MegaFolderResult {
   albumId: string;
@@ -296,8 +296,9 @@ export async function fetchMegaFolderMedia(
     let imageCount = 0;
     let videoCount = 0;
 
-    // Load any previously captured video thumbnails from database for this album
+    // Load any previously captured video thumbnails and favorites from database for this album
     const videoThumbnails = await getVideoThumbnailsForAlbum(albumId);
+    const favHandles = await getFavoriteHandles(albumId);
 
     if (targetNode && targetNode.children && Array.isArray(targetNode.children)) {
       for (const child of targetNode.children) {
@@ -341,6 +342,7 @@ export async function fetchMegaFolderMedia(
             const computedThumbnail = hasStoredThumbnail
               ? `/api/mega/thumbnail?albumId=${albumId}&handle=${encodeURIComponent(rawHandle)}`
               : (child as any).thumbnailUrl || undefined;
+            const isFav = favHandles.has(rawHandle) || favHandles.has(handleFirstPart);
             const mediaItem: MediaItem = {
               id: `med-${rawHandle || Math.random().toString(36).substring(7)}`,
               albumId,
@@ -352,6 +354,7 @@ export async function fetchMegaFolderMedia(
               createdAt: child.timestamp ? new Date(child.timestamp * 1000).toISOString() : new Date().toISOString(),
               thumbnailUrl: computedThumbnail,
               streamUrl: `/api/mega/stream?albumId=${albumId}&handle=${encodeURIComponent(rawHandle)}`,
+              isFavorite: isFav,
             };
             items.push(mediaItem);
           }

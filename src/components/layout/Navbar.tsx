@@ -1,15 +1,29 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { HardDrive, Home, Settings, LogOut } from 'lucide-react';
+import { HardDrive, Home, Star, Settings, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import { PrimaryLogoSvg } from '@/components/brand/LogoVariants';
 
 export const Navbar: React.FC = () => {
   const pathname = usePathname();
   const router = useRouter();
+  const [favCount, setFavCount] = useState<number>(0);
+
+  useEffect(() => {
+    if (pathname === '/login') return;
+
+    fetch('/api/favorites')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && typeof data.count === 'number') {
+          setFavCount(data.count);
+        }
+      })
+      .catch(() => {});
+  }, [pathname]);
 
   // Hide Navbar on Login page
   if (pathname === '/login') return null;
@@ -26,6 +40,7 @@ export const Navbar: React.FC = () => {
 
   const navLinks = [
     { label: 'Gallery', href: '/', icon: Home },
+    { label: 'Favorites', href: '/favorites', icon: Star, badge: favCount > 0 ? favCount : undefined },
     { label: 'Settings', href: '/settings', icon: Settings },
   ];
 
@@ -49,7 +64,7 @@ export const Navbar: React.FC = () => {
                   key={link.href}
                   href={link.href}
                   className={cn(
-                    'flex items-center space-x-1.5 sm:space-x-2 px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-200',
+                    'flex items-center space-x-1.5 sm:space-x-2 px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all duration-200 relative',
                     isActive
                       ? 'bg-blue-600/15 text-blue-400 border border-blue-500/30 shadow-sm shadow-blue-500/10'
                       : 'text-zinc-400 hover:text-white hover:bg-zinc-800/50'
@@ -57,6 +72,11 @@ export const Navbar: React.FC = () => {
                 >
                   <Icon className={cn('w-4 h-4', isActive ? 'text-blue-400' : 'text-zinc-400')} />
                   <span>{link.label}</span>
+                  {link.badge !== undefined && (
+                    <span className="px-1.5 py-0.2 text-[10px] font-bold font-mono rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                      {link.badge}
+                    </span>
+                  )}
                 </Link>
               );
             })}

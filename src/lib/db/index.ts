@@ -156,6 +156,19 @@ async function ensureTursoSchema(client: Client): Promise<void> {
       PRIMARY KEY (album_id, handle)
     );
   `);
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS favorites (
+      id TEXT PRIMARY KEY,
+      album_id TEXT NOT NULL,
+      handle TEXT NOT NULL,
+      file_name TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      media_type TEXT NOT NULL,
+      size INTEGER NOT NULL,
+      thumbnail_url TEXT,
+      created_at TEXT NOT NULL
+    );
+  `);
   // Non-destructive migrations: add updated_at and cover_image_url if they don't exist yet
   try {
     await client.execute(`ALTER TABLE albums ADD COLUMN updated_at TEXT;`);
@@ -187,6 +200,17 @@ function getLocalDb(): Database.Database {
         thumbnail_data TEXT NOT NULL,
         created_at TEXT NOT NULL,
         PRIMARY KEY (album_id, handle)
+      );
+      CREATE TABLE IF NOT EXISTS favorites (
+        id TEXT PRIMARY KEY,
+        album_id TEXT NOT NULL,
+        handle TEXT NOT NULL,
+        file_name TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        media_type TEXT NOT NULL,
+        size INTEGER NOT NULL,
+        thumbnail_url TEXT,
+        created_at TEXT NOT NULL
       );
     `);
 
@@ -569,4 +593,195 @@ export async function updateAlbumCoverImage(albumId: string, coverImageUrl: stri
     console.error('Local DB updateAlbumCoverImage error:', e);
   }
 }
+
+// ─── FAVORITES DATABASE HELPERS ───
+
+const favoritesBackupFilePath = path.join(dataDir, 'favorites_backup.json');
+
+function syncFavoritesBackup(favorites: DbFavorite[]): void {
+  ensureDataDir();
+  try {
+    fs.writeFileSync(favoritesBackupFilePath, JSON.stringify(favorites, null, 2), 'utf8');
+  } catch (e) {
+    console.error('Failed to write favorites backup:', e);
+  }
+}
+
+function loadFavoritesBackup(): DbFavorite[] {
+  ensureDataDir();
+  try {
+    if (fs.existsSync(favoritesBackupFilePath)) {
+      const raw = fs.readFileSync(favoritesBackupFilePath, 'utf8');
+      const data = JSON.parse(raw);
+      if (Array.isArray(data)) return data;
+    }
+  } catch (e) {
+    console.error('Failed to read favorites backup:', e);
+  }
+  return [];
+}
+
+export interface DbFavorite {
+  id: string;
+  album_id: string;
+  handle: string;
+  file_name: string;
+  mime_type: string;
+  media_type: string;
+  size: number;
+  thumbnail_url?: string | null;
+  created_at: string;
+}
+
+export async function getAllFavorites(): Promise<DbFavorite[]> {
+  let favorites: DbFavorite[] = [];
+  const client = getTursoClient();
+  if (client) {
+    try {
+      await ensureTursoSchema(client);
+      const res = await client.execute('SELECT * FROM favorites ORDER BY created_at DESC');
+      favorites = res.rows.map((row: any) => ({
+        id: row.id,
+        album_id: row.album_id,
+        handle: row.handle,
+        file_name: row.file_name,
+        mime_type: row.mime_type,
+        media_type: row.media_type,
+        size: Number(row.size),
+        thumbnail_url: row.thumbnail_url,
+        created_at: row.created_at,
+      }));
+    } catch (e) {
+      console.error('[MegaVault] Turso DB getAllFavorites error:', e);
+    }
+  }
+
+  if (favorites.length === 0) {
+    try {
+      const db = getLocalDb();
+      const stmt = db.prepare('SELECT * FROM favorites ORDER BY created_at DESC');
+      favorites = stmt.all() as DbFavorite[];
+    } catch (e) {
+      console.error('[MegaVault] Local DB getAllFavorites error:', e);
+    }
+  }
+
+  if (favorites.length === 0) {
+    const backupFavs = loadFavoritesBackup();
+    if (backupFavs.length > 0) {
+      favorites = backupFavs;
+      // Re-populate DB from backup
+      for (const fav of backupFavs) {
+        try {
+          const db = getLocalDb();
+          const stmt = db.prepare(`
+            INSERT OR REPLACE INTO favorites (id, album_id, handle, file_name, mime_type, media_type, size, thumbnail_url, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          stmt.run(fav.id, fav.album_id, fav.handle, fav.file_name, fav.mime_type, fav.media_type, fav.size, fav.thumbnail_url || null, fav.created_at);
+        } catch {}
+      }
+    }
+  } else {
+    syncFavoritesBackup(favorites);
+  }
+
+  return favorites;
+}
+
+export async function toggleFavorite(item: {
+  albumId: string;
+  handle: string;
+  fileName: string;
+  mimeType: string;
+  mediaType: string;
+  size: number;
+  thumbnailUrl?: string | null;
+}): Promise<{ isFavorite: boolean }> {
+  const id = `${item.albumId}:${item.handle}`;
+  const now = new Date().toISOString();
+
+  // Check if currently favorited
+  const currentFavs = await getAllFavorites();
+  const exists = currentFavs.some((f) => f.id === id || (f.album_id === item.albumId && f.handle === item.handle));
+
+  if (exists) {
+    // Remove favorite
+    const client = getTursoClient();
+    if (client) {
+      try {
+        await ensureTursoSchema(client);
+        await client.execute({ sql: 'DELETE FROM favorites WHERE id = ?', args: [id] });
+      } catch (e) {
+        console.error('Turso delete favorite error:', e);
+      }
+    }
+    try {
+      const db = getLocalDb();
+      db.prepare('DELETE FROM favorites WHERE id = ? OR (album_id = ? AND handle = ?)').run(id, item.albumId, item.handle);
+    } catch (e) {
+      console.error('Local DB delete favorite error:', e);
+    }
+
+    const updated = currentFavs.filter((f) => f.id !== id && !(f.album_id === item.albumId && f.handle === item.handle));
+    syncFavoritesBackup(updated);
+
+    return { isFavorite: false };
+  } else {
+    // Add favorite
+    const newFav: DbFavorite = {
+      id,
+      album_id: item.albumId,
+      handle: item.handle,
+      file_name: item.fileName,
+      mime_type: item.mimeType,
+      media_type: item.mediaType,
+      size: item.size,
+      thumbnail_url: item.thumbnailUrl || null,
+      created_at: now,
+    };
+
+    const client = getTursoClient();
+    if (client) {
+      try {
+        await ensureTursoSchema(client);
+        await client.execute({
+          sql: `INSERT OR REPLACE INTO favorites (id, album_id, handle, file_name, mime_type, media_type, size, thumbnail_url, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [id, item.albumId, item.handle, item.fileName, item.mimeType, item.mediaType, item.size, item.thumbnailUrl || null, now],
+        });
+      } catch (e) {
+        console.error('Turso insert favorite error:', e);
+      }
+    }
+
+    try {
+      const db = getLocalDb();
+      const stmt = db.prepare(`
+        INSERT OR REPLACE INTO favorites (id, album_id, handle, file_name, mime_type, media_type, size, thumbnail_url, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      stmt.run(id, item.albumId, item.handle, item.fileName, item.mimeType, item.mediaType, item.size, item.thumbnailUrl || null, now);
+    } catch (e) {
+      console.error('Local DB insert favorite error:', e);
+    }
+
+    const updated = [newFav, ...currentFavs.filter((f) => f.id !== id)];
+    syncFavoritesBackup(updated);
+
+    return { isFavorite: true };
+  }
+}
+
+export async function getFavoriteHandles(albumId?: string): Promise<Set<string>> {
+  const favs = await getAllFavorites();
+  const set = new Set<string>();
+  for (const f of favs) {
+    if (!albumId || f.album_id === albumId) {
+      set.add(f.handle);
+    }
+  }
+  return set;
+}
+
 

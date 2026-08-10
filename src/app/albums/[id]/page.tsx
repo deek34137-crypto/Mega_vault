@@ -6,6 +6,7 @@ import { useParams, useSearchParams } from 'next/navigation';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { MediaCard } from '@/components/gallery/MediaCard';
 import { VideoPlayer } from '@/components/viewer/VideoPlayer';
+import { ImageLightbox } from '@/components/viewer/ImageLightbox';
 import { Album, MediaItem, FilterMediaType } from '@/types';
 import {
   ArrowLeft,
@@ -28,6 +29,7 @@ import {
   Check,
   HelpCircle,
   Keyboard,
+  Star,
 } from 'lucide-react';
 import { formatBytes, formatDate } from '@/lib/utils/cn';
 
@@ -338,6 +340,21 @@ function AlbumContent() {
 
           <div className="flex items-center space-x-3 w-full sm:w-auto">
             <button
+              onClick={() => {
+                const link = document.createElement('a');
+                link.href = `/api/mega/zip?albumId=${encodeURIComponent(albumId)}${folderParam ? `&subfolder=${encodeURIComponent(folderParam)}` : ''}`;
+                link.download = `${album?.title || 'album'}.zip`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+              }}
+              className="w-full sm:w-auto justify-center px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold flex items-center gap-2 transition-all shadow-md shadow-amber-600/20"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Stream ZIP Album</span>
+            </button>
+
+            <button
               onClick={handleRefresh}
               disabled={isRefreshing}
               className="w-full sm:w-auto justify-center px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-2 transition-all shadow-md shadow-blue-600/20"
@@ -494,12 +511,30 @@ function AlbumContent() {
             </button>
 
             <button
+              onClick={() => {
+                const selectedItems = mediaItems.filter((m) => selectedIds.has(m.id));
+                const handles = selectedItems.map((m) => m.fileHandle).join(',');
+                const link = document.createElement('a');
+                link.href = `/api/mega/zip?albumId=${encodeURIComponent(albumId)}&handles=${encodeURIComponent(handles)}`;
+                link.download = 'selected_media.zip';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+              }}
+              disabled={selectedIds.size === 0}
+              className="px-4 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md shadow-amber-600/20"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Stream ZIP Selected ({selectedIds.size})</span>
+            </button>
+
+            <button
               onClick={handleBatchDownload}
               disabled={selectedIds.size === 0}
               className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md shadow-emerald-600/20"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>Download Selected ({selectedIds.size})</span>
+              <span>Direct Download ({selectedIds.size})</span>
             </button>
           </div>
         </div>
@@ -559,128 +594,15 @@ function AlbumContent() {
 
       {/* Fullscreen Image Viewer Modal */}
       {selectedMedia && selectedMedia.mediaType === 'IMAGE' && (
-        <div
-          onTouchStart={(e) => {
-            touchStartX.current = e.touches[0].clientX;
-            touchStartY.current = e.touches[0].clientY;
-          }}
-          onTouchEnd={(e) => {
-            if (touchStartX.current === null || touchStartY.current === null) return;
-            const deltaX = e.changedTouches[0].clientX - touchStartX.current;
-            const deltaY = e.changedTouches[0].clientY - touchStartY.current;
-            if (Math.abs(deltaX) > 50 && Math.abs(deltaX) > Math.abs(deltaY)) {
-              if (deltaX < 0) handleNext();
-              else if (deltaX > 0) handlePrev();
-            }
-            touchStartX.current = null;
-            touchStartY.current = null;
-          }}
-          className="fixed inset-0 z-50 bg-black select-none"
-          style={{ animation: 'fadeInScale 0.22s cubic-bezier(0.22,1,0.36,1) both' }}
-        >
-          <style>{`
-            @keyframes fadeInScale {
-              from { opacity: 0; transform: scale(0.96); }
-              to   { opacity: 1; transform: scale(1); }
-            }
-          `}</style>
-
-          {/* Full viewport image — covers 100% screen */}
-          <div
-            className="absolute inset-0 flex items-center justify-center cursor-zoom-in"
-            onClick={() => setSelectedIndex(null)}
-          >
-            <img
-              key={selectedMedia.id}
-              src={selectedMedia.streamUrl || selectedMedia.thumbnailUrl || ''}
-              alt={selectedMedia.fileName}
-              fetchPriority="high"
-              decoding="async"
-              onClick={(e) => e.stopPropagation()}
-              className="max-w-full max-h-full w-full h-full object-contain select-none"
-              style={{ animation: 'fadeInScale 0.18s ease both' }}
-              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-            />
-          </div>          {/* Top overlay: filename + slideshow + download + close */}
-          <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 py-3 bg-gradient-to-b from-black/80 to-transparent pointer-events-none">
-            <div className="pointer-events-auto">
-              <p className="text-sm font-bold text-white font-mono truncate max-w-[50vw]">{selectedMedia.fileName}</p>
-              <p className="text-xs text-zinc-400">
-                {formatBytes(selectedMedia.size)} &nbsp;•&nbsp; {selectedIndex! + 1} / {filteredMedia.length}
-                {isSlideshow && <span className="text-blue-400 font-bold ml-2 animate-pulse">• Slideshow Playing (3.5s)</span>}
-              </p>
-            </div>
-            <div className="flex items-center gap-2 pointer-events-auto">
-              {/* Play / Pause Slideshow Button */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setIsSlideshow(!isSlideshow);
-                }}
-                title={isSlideshow ? 'Pause Slideshow' : 'Play Auto-Slideshow'}
-                className={`px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 border backdrop-blur-md transition-all ${
-                  isSlideshow
-                    ? 'bg-blue-600 border-blue-400 text-white shadow-lg shadow-blue-600/30'
-                    : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-700/70'
-                }`}
-              >
-                {isSlideshow ? <Pause className="w-3.5 h-3.5 fill-white" /> : <Play className="w-3.5 h-3.5 fill-white" />}
-                <span>{isSlideshow ? 'Pause' : 'Slideshow'}</span>
-              </button>
-
-              <a
-                href={`${selectedMedia.streamUrl}&download=true`}
-                download={selectedMedia.fileName}
-                onClick={(e) => e.stopPropagation()}
-                title="Download image"
-                className="p-2.5 rounded-full bg-zinc-900/80 hover:bg-emerald-600 text-zinc-300 hover:text-white border border-zinc-700/70 transition-all backdrop-blur-md"
-              >
-                <Download className="w-5 h-5" />
-              </a>
-
-              <button
-                onClick={() => {
-                  setSelectedIndex(null);
-                  setIsSlideshow(false);
-                }}
-                className="p-2.5 rounded-full bg-zinc-900/80 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700/70 transition-all backdrop-blur-md"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
-
-          {/* Left arrow */}
-          <button
-            onClick={(e) => { e.stopPropagation(); handlePrev(); }}
-            className="absolute left-3 sm:left-5 top-1/2 -translate-y-1/2 z-20 p-3 rounded-full bg-zinc-900/80 hover:bg-blue-600 text-zinc-200 hover:text-white border border-zinc-700/80 hover:border-blue-500 backdrop-blur-md transition-all shadow-2xl"
-          >
-            <ChevronLeft className="w-6 h-6" />
-          </button>
-
-          {/* Right arrow */}
-          <button
-            onClick={(e) => { e.stopPropagation(); handleNext(); }}
-            className="absolute right-3 sm:right-5 top-1/2 -translate-y-1/2 z-20 p-3 rounded-full bg-zinc-900/80 hover:bg-blue-600 text-zinc-200 hover:text-white border border-zinc-700/80 hover:border-blue-500 backdrop-blur-md transition-all shadow-2xl"
-          >
-            <ChevronRight className="w-6 h-6" />
-          </button>
-
-          {/* Bottom dot indicator for <= 20 images */}
-          {filteredMedia.length <= 20 && (
-            <div className="absolute bottom-4 left-0 right-0 z-20 flex items-center justify-center gap-1.5 pointer-events-none">
-              {filteredMedia.map((m, idx) => (
-                <button
-                  key={m.id}
-                  onClick={(e) => { e.stopPropagation(); setSelectedIndex(idx); }}
-                  className={`h-2 rounded-full transition-all pointer-events-auto ${
-                    idx === selectedIndex ? 'w-6 bg-blue-500 shadow-md' : 'w-2 bg-white/30 hover:bg-white/60'
-                  }`}
-                />
-              ))}
-            </div>
-          )}
-        </div>
+        <ImageLightbox
+          media={selectedMedia}
+          currentIndex={selectedIndex!}
+          totalCount={filteredMedia.length}
+          onClose={() => setSelectedIndex(null)}
+          onPrev={handlePrev}
+          onNext={handleNext}
+          onFavoriteToggle={() => setMediaItems([...mediaItems])}
+        />
       )}
 
       {/* Keyboard Shortcuts Cheatsheet Modal */}

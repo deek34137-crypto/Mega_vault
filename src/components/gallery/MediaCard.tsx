@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Play, Film, Image as ImageIcon, Check } from 'lucide-react';
+import { Play, Film, Image as ImageIcon, Check, Star } from 'lucide-react';
 import { MediaItem } from '@/types';
 import { formatBytes } from '@/lib/utils/cn';
 
@@ -12,6 +12,7 @@ interface MediaCardProps {
   isSelectMode?: boolean;
   isSelected?: boolean;
   onSelectToggle?: (media: MediaItem) => void;
+  onFavoriteToggle?: (media: MediaItem, isFav: boolean) => void;
 }
 
 function getGradientFromFileName(name: string): string {
@@ -37,11 +38,17 @@ export const MediaCard: React.FC<MediaCardProps> = ({
   isSelectMode = false,
   isSelected = false,
   onSelectToggle,
+  onFavoriteToggle,
 }) => {
   const cardRef = useRef<HTMLDivElement>(null);
   const [isVisible, setIsVisible] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
+  const [isFavorite, setIsFavorite] = useState(media.isFavorite || false);
+
+  useEffect(() => {
+    setIsFavorite(media.isFavorite || false);
+  }, [media.isFavorite]);
 
   const isVideo = media.mediaType === 'VIDEO';
   const ext = media.fileName.split('.').pop()?.toUpperCase() || (isVideo ? 'VIDEO' : 'IMG');
@@ -56,7 +63,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({
           observer.disconnect();
         }
       },
-      { rootMargin: '200px' } // Load 200px before scrolling into view
+      { rootMargin: '200px' }
     );
 
     if (cardRef.current) {
@@ -65,6 +72,33 @@ export const MediaCard: React.FC<MediaCardProps> = ({
 
     return () => observer.disconnect();
   }, []);
+
+  const handleFavoriteClick = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const nextFavState = !isFavorite;
+    setIsFavorite(nextFavState);
+    if (onFavoriteToggle) {
+      onFavoriteToggle(media, nextFavState);
+    }
+
+    try {
+      await fetch('/api/favorites', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          albumId: media.albumId,
+          handle: media.fileHandle,
+          fileName: media.fileName,
+          mimeType: media.mimeType,
+          mediaType: media.mediaType,
+          size: media.size,
+          thumbnailUrl: media.thumbnailUrl,
+        }),
+      });
+    } catch (err) {
+      console.error('Failed to update favorite status:', err);
+    }
+  };
 
   return (
     <motion.div
@@ -95,6 +129,21 @@ export const MediaCard: React.FC<MediaCardProps> = ({
             <Check className="w-4 h-4 stroke-[3]" />
           </div>
         </div>
+      )}
+
+      {/* Star Favorite Button */}
+      {!isSelectMode && (
+        <button
+          onClick={handleFavoriteClick}
+          title={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+          className={`absolute top-2.5 right-2.5 z-30 p-1.5 rounded-xl border backdrop-blur-md transition-all duration-200 ${
+            isFavorite
+              ? 'bg-amber-500/20 border-amber-500/40 text-amber-400 opacity-100 shadow-md shadow-amber-500/10'
+              : 'bg-black/40 border-white/10 text-zinc-400 opacity-0 group-hover:opacity-100 hover:text-amber-400 hover:border-amber-500/30'
+          }`}
+        >
+          <Star className={`w-4 h-4 transition-transform ${isFavorite ? 'fill-amber-400 scale-110' : ''}`} />
+        </button>
       )}
 
       {/* Media Cover / Preview Container */}
@@ -163,7 +212,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({
             </div>
 
             {/* Top badge row */}
-            <div className="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between z-10">
+            <div className="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between z-10 pr-8">
               <span className="px-2 py-0.5 rounded-md bg-black/60 backdrop-blur-md text-[10px] font-extrabold text-zinc-200 border border-white/10 uppercase flex items-center gap-1">
                 <Film className="w-3 h-3 text-purple-400" />
                 <span>{ext}</span>
@@ -183,7 +232,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({
         ) : (
           /* Fallback Poster Card (before visible / image failed) */
           <div className={`w-full h-full bg-gradient-to-br ${gradient} p-3.5 flex flex-col justify-between relative overflow-hidden`}>
-            <div className="flex items-center justify-between z-10">
+            <div className="flex items-center justify-between z-10 pr-8">
               <span className="px-2 py-0.5 rounded-md bg-black/60 backdrop-blur-md text-[10px] font-extrabold text-zinc-200 border border-white/10 uppercase flex items-center gap-1">
                 {isVideo ? <Film className="w-3 h-3 text-purple-400" /> : <ImageIcon className="w-3 h-3 text-blue-400" />}
                 <span>{ext}</span>

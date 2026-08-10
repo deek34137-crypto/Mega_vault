@@ -16,6 +16,7 @@ import {
   Loader2,
   ChevronLeft,
   ChevronRight,
+  Star,
 } from 'lucide-react';
 import { formatBytes, formatDuration } from '@/lib/utils/cn';
 import { MediaItem } from '@/types';
@@ -373,6 +374,38 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Favorite Button */}
+          <button
+            onClick={async (e) => {
+              e.stopPropagation();
+              const nextState = !media.isFavorite;
+              media.isFavorite = nextState;
+              try {
+                await fetch('/api/favorites', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    albumId: media.albumId,
+                    handle: media.fileHandle,
+                    fileName: media.fileName,
+                    mimeType: media.mimeType,
+                    mediaType: media.mediaType,
+                    size: media.size,
+                    thumbnailUrl: media.thumbnailUrl,
+                  }),
+                });
+              } catch (err) {}
+            }}
+            title={media.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+            className={`p-2.5 rounded-full border transition-all ${
+              media.isFavorite
+                ? 'bg-amber-500/20 border-amber-500/40 text-amber-400'
+                : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-700/70'
+            }`}
+          >
+            <Star className={`w-5 h-5 ${media.isFavorite ? 'fill-amber-400 text-amber-400' : ''}`} />
+          </button>
+
           {/* Download Button */}
           <a
             href={`${media.streamUrl}&download=true`}
