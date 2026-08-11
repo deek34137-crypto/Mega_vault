@@ -32,6 +32,69 @@ function getGradientFromFileName(name: string): string {
   return gradients[index];
 }
 
+const sampledCache = new Map<string, string>();
+
+async function sampleVideoFrame(streamUrl: string, albumId: string, handle: string): Promise<string | null> {
+  const cacheKey = `${albumId}_${handle}`;
+  if (sampledCache.has(cacheKey)) return sampledCache.get(cacheKey)!;
+
+  return new Promise((resolve) => {
+    const video = document.createElement('video');
+    video.crossOrigin = 'anonymous';
+    video.muted = true;
+    video.preload = 'metadata';
+    video.src = streamUrl;
+
+    const timeout = setTimeout(() => {
+      video.remove();
+      resolve(null);
+    }, 10000);
+
+    video.onloadeddata = () => {
+      video.currentTime = 1.0;
+    };
+
+    video.onseeked = () => {
+      clearTimeout(timeout);
+      try {
+        const canvas = document.createElement('canvas');
+        const aspect = (video.videoWidth || 16) / (video.videoHeight || 9);
+        const targetWidth = 400;
+        canvas.width = targetWidth;
+        canvas.height = Math.round(targetWidth / aspect);
+
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.75);
+          sampledCache.set(cacheKey, dataUrl);
+
+          // Save thumbnail in background DB
+          fetch('/api/mega/thumbnail', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ albumId, handle, thumbnailDataUrl: dataUrl }),
+          }).catch(() => {});
+
+          resolve(dataUrl);
+        } else {
+          resolve(null);
+        }
+      } catch (err) {
+        resolve(null);
+      } finally {
+        video.remove();
+      }
+    };
+
+    video.onerror = () => {
+      clearTimeout(timeout);
+      video.remove();
+      resolve(null);
+    };
+  });
+}
+
 export const MediaCard: React.FC<MediaCardProps> = ({
   media,
   onClick,
@@ -45,6 +108,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
   const [isFavorite, setIsFavorite] = useState(media.isFavorite || false);
+  const [sampledThumbnail, setSampledThumbnail] = useState<string | null>(media.thumbnailUrl || null);
 
   useEffect(() => {
     setIsFavorite(media.isFavorite || false);
@@ -53,6 +117,14 @@ export const MediaCard: React.FC<MediaCardProps> = ({
   const isVideo = media.mediaType === 'VIDEO';
   const ext = media.fileName.split('.').pop()?.toUpperCase() || (isVideo ? 'VIDEO' : 'IMG');
   const gradient = getGradientFromFileName(media.fileName);
+
+  useEffect(() => {
+    if (isVideo && isVisible && !media.thumbnailUrl && !sampledThumbnail && media.streamUrl) {
+      sampleVideoFrame(media.streamUrl, media.albumId, media.fileHandle).then((thumb) => {
+        if (thumb) setSampledThumbnail(thumb);
+      });
+    }
+  }, [isVideo, isVisible, media.thumbnailUrl, media.streamUrl, media.albumId, media.fileHandle, sampledThumbnail]);
 
   // Lazy load media ONLY when card enters browser viewport
   useEffect(() => {
@@ -186,9 +258,9 @@ export const MediaCard: React.FC<MediaCardProps> = ({
         ) : isVideo ? (
           /* Video Card — if real thumbnail exists, render it; otherwise render gradient poster */
           <div className="relative w-full h-full overflow-hidden bg-zinc-950">
-            {media.thumbnailUrl && isVisible && !imageError ? (
+            {(media.thumbnailUrl || sampledThumbnail) && isVisible && !imageError ? (
               <img
-                src={media.thumbnailUrl}
+                src={media.thumbnailUrl || sampledThumbnail!}
                 alt={media.fileName}
                 loading="lazy"
                 decoding="async"
@@ -200,7 +272,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({
               />
             ) : null}
 
-            {(!media.thumbnailUrl || !imageLoaded) && (
+            {(!media.thumbnailUrl && !sampledThumbnail || !imageLoaded) && (
               <div className={`absolute inset-0 bg-gradient-to-br ${gradient} opacity-90`} />
             )}
 

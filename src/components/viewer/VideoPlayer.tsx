@@ -512,6 +512,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   setVolume(val);
                   if (videoRef.current) videoRef.current.volume = val;
                 }}
+                className="w-16 sm:w-20 h-1 bg-zinc-700 accent-blue-500 rounded cursor-pointer"
+              />
+            </div>
+
             {/* Playback Speed Selector */}
             <div className="flex items-center space-x-1 pl-2 border-l border-zinc-800">
               {[0.5, 1.0, 1.25, 1.5, 2.0].map((rate) => (
