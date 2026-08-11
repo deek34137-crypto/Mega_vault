@@ -6,6 +6,7 @@ interface CacheEntry<T> {
 class MemoryCache {
   private cache = new Map<string, CacheEntry<any>>();
   private defaultTTL = 5 * 60 * 1000; // 5 minutes in ms
+  private maxEntries = 500; // Maximum cache entry capacity
 
   get<T>(key: string): T | null {
     const entry = this.cache.get(key);
@@ -17,10 +18,21 @@ class MemoryCache {
       return null;
     }
 
+    // Refresh LRU order on access
+    this.cache.delete(key);
+    this.cache.set(key, entry);
+
     return entry.data as T;
   }
 
   set<T>(key: string, data: T): void {
+    if (this.cache.has(key)) {
+      this.cache.delete(key);
+    } else if (this.cache.size >= this.maxEntries) {
+      const oldestKey = this.cache.keys().next().value;
+      if (oldestKey) this.cache.delete(oldestKey);
+    }
+
     this.cache.set(key, {
       data,
       timestamp: Date.now(),

@@ -8,14 +8,6 @@ import { Readable } from 'stream';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-// Maximum chunk size thresholds for smooth video streaming:
-// - SMALL_FILE_MAX_SIZE (16MB): Files <= 16MB are streamed in full for 0-buffer playback.
-// - INITIAL_CHUNK_LARGE (4MB): Initial range request chunk (4MB) for instant playback start within ~150ms.
-// - SUSTAINED_CHUNK_LARGE (16MB): Sustained playback chunks for smooth seeking without Range overhead.
-const SMALL_FILE_MAX_SIZE = 16 * 1024 * 1024;
-const INITIAL_CHUNK_LARGE = 4 * 1024 * 1024;
-const SUSTAINED_CHUNK_LARGE = 16 * 1024 * 1024;
-
 export async function GET(request: Request) {
   const auth = await isAuthenticated();
   if (!auth) {
@@ -39,7 +31,6 @@ export async function GET(request: Request) {
   try {
     let targetFile = await getMegaFileByHandle(album.id, album.mega_link, handle);
 
-    // Fallback: If not in cache, invoke fetchMegaFolderMedia once to load and populate cache
     if (!targetFile) {
       await fetchMegaFolderMedia(album.id, album.mega_link);
       targetFile = await getMegaFileByHandle(album.id, album.mega_link, handle);
@@ -68,6 +59,13 @@ export async function GET(request: Request) {
     // ─── DOWNLOAD MODE: stream full file with attachment header ───
     if (isDownload) {
       const nodeStream = targetFile.download();
+      if (request.signal) {
+        if (request.signal.aborted) {
+          nodeStream.destroy();
+        } else {
+          request.signal.addEventListener('abort', () => nodeStream.destroy());
+        }
+      }
       const webStream = Readable.toWeb(nodeStream);
       return new Response(webStream as any, {
         status: 200,
@@ -101,10 +99,14 @@ export async function GET(request: Request) {
       // Download image buffer directly into RAM cache
       try {
         const buffer = await new Promise<Buffer>((resolve, reject) => {
-          targetFile.download((err: any, data: Buffer) => {
+          const imgStream = targetFile.download((err: any, data: Buffer) => {
             if (err) reject(err);
             else resolve(data);
           });
+          if (request.signal) {
+            if (request.signal.aborted) imgStream?.destroy?.();
+            else request.signal.addEventListener('abort', () => imgStream?.destroy?.());
+          }
         });
 
         imageBufferCache.set(cacheKey, buffer, mimeType);
@@ -120,7 +122,6 @@ export async function GET(request: Request) {
         });
       } catch (err) {
         console.error('Error downloading image buffer:', err);
-        // Fall back to streaming if buffer download fails
       }
     }
 
@@ -129,34 +130,22 @@ export async function GET(request: Request) {
     // Handle HTTP Range Requests for smooth video seeking & HTML5 playback
     if (range && fileSize > 0) {
       const parts = range.replace(/bytes=/, '').split('-');
-      const rawStart = parseInt(parts[0], 10) || 0;
-
-      // 1. Align start byte to 16-byte boundary for AES-CTR decryption compatibility
-      const start = Math.floor(rawStart / 16) * 16;
+      const start = parseInt(parts[0], 10) || 0;
 
       let end: number;
       if (parts[1] && parts[1].trim() !== '') {
-        // Browser explicitly requested a target end range (e.g. MP4 moov atom / MKV index seek)
         const requestedEnd = parseInt(parts[1], 10);
         end = Math.min(requestedEnd, fileSize - 1);
       } else {
-        // Unbounded range request (e.g. bytes=250000000-)
-        // For large files (>16MB), stream in sustained 32MB chunks
-        const SUSTAINED_CHUNK = 32 * 1024 * 1024;
-        if (fileSize <= SMALL_FILE_MAX_SIZE || fileSize - start <= SUSTAINED_CHUNK) {
-          end = fileSize - 1;
-        } else {
-          const maxChunk = start === 0 ? INITIAL_CHUNK_LARGE : SUSTAINED_CHUNK;
-          end = Math.min(start + maxChunk - 1, fileSize - 1);
-        }
+        end = fileSize - 1;
       }
 
       if (end < start) end = Math.min(start + 1024 * 1024, fileSize - 1);
       const chunkSize = end - start + 1;
       const videoCacheKey = `${album.id}_${handle}_${start}_${end}`;
 
-      // FAST PATH: Initial 4MB video chunk served in 1ms from RAM cache!
-      if (start === 0 && (!parts[1] || parseInt(parts[1], 10) >= INITIAL_CHUNK_LARGE)) {
+      // FAST PATH: If initial chunk is already cached in RAM, serve instantly (1ms)
+      if (start === 0 && videoChunkCache) {
         const cachedChunk = videoChunkCache.get(videoCacheKey);
         if (cachedChunk) {
           return new Response(cachedChunk.buffer as any, {
@@ -168,44 +157,30 @@ export async function GET(request: Request) {
               'Content-Type': mimeType,
               'Content-Disposition': `inline; filename="${encodeURIComponent(fileName)}"`,
               'Cache-Control': 'public, max-age=31536000, immutable',
-              'CDN-Cache-Control': 'public, max-age=31536000, immutable',
               'X-Video-FastStart': 'RAM-Cache-Hit',
             },
           });
         }
+      }
 
-        // Download initial 4MB chunk into RAM cache asynchronously
-        try {
-          const buffer = await new Promise<Buffer>((resolve, reject) => {
-            const stream = targetFile.download({ start, end });
-            const chunks: Buffer[] = [];
-            stream.on('data', (c: Buffer) => chunks.push(c));
-            stream.on('end', () => resolve(Buffer.concat(chunks)));
-            stream.on('error', (e: any) => reject(e));
+      // Stream directly without blocking headers, allowing instant <50ms response start
+      const nodeStream = targetFile.download({
+        start,
+        end,
+        initialChunkSize: 256 * 1024,
+        maxChunkSize: 2 * 1024 * 1024,
+      });
+
+      if (request.signal) {
+        if (request.signal.aborted) {
+          nodeStream.destroy();
+        } else {
+          request.signal.addEventListener('abort', () => {
+            nodeStream.destroy();
           });
-
-          videoChunkCache.set(videoCacheKey, buffer, mimeType, fileSize);
-
-          return new Response(buffer as any, {
-            status: 206,
-            headers: {
-              'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-              'Accept-Ranges': 'bytes',
-              'Content-Length': buffer.length.toString(),
-              'Content-Type': mimeType,
-              'Content-Disposition': `inline; filename="${encodeURIComponent(fileName)}"`,
-              'Cache-Control': 'public, max-age=31536000, immutable',
-              'CDN-Cache-Control': 'public, max-age=31536000, immutable',
-              'X-Video-FastStart': 'RAM-Cached',
-            },
-          });
-        } catch (err) {
-          console.error('Error buffering initial video chunk:', err);
-          // Fall back to direct streaming if buffer fails
         }
       }
 
-      const nodeStream = targetFile.download({ start, end });
       nodeStream.on('error', (err: any) => {
         console.error(`[MEGA Stream Node Exception for ${fileName} (${start}-${end})]:`, err);
       });
@@ -226,39 +201,31 @@ export async function GET(request: Request) {
     }
 
     // Un-ranged Requests (when browser asks for entire file directly):
-    // - For files <= 32MB: Stream full file with HTTP 200 OK
-    // - For files > 32MB: Cap initial stream to 32MB with HTTP 206 Partial Content
-    if (fileSize <= SMALL_FILE_MAX_SIZE) {
-      const nodeStream = targetFile.download();
-      const webStream = Readable.toWeb(nodeStream);
-
-      return new Response(webStream as any, {
-        status: 200,
-        headers: {
-          'Content-Type': mimeType,
-          'Content-Length': fileSize.toString(),
-          'Content-Disposition': `inline; filename="${encodeURIComponent(fileName)}"`,
-          'Accept-Ranges': 'bytes',
-          'Cache-Control': 'public, max-age=31536000, immutable',
-        },
-      });
-    } else {
-      const end = Math.min(SUSTAINED_CHUNK_LARGE - 1, fileSize - 1);
-      const nodeStream = targetFile.download({ start: 0, end });
-      const webStream = Readable.toWeb(nodeStream);
-
-      return new Response(webStream as any, {
-        status: 206,
-        headers: {
-          'Content-Type': mimeType,
-          'Content-Range': `bytes 0-${end}/${fileSize}`,
-          'Content-Length': (end + 1).toString(),
-          'Content-Disposition': `inline; filename="${encodeURIComponent(fileName)}"`,
-          'Accept-Ranges': 'bytes',
-          'Cache-Control': 'public, max-age=31536000, immutable',
-        },
-      });
+    const nodeStream = targetFile.download({
+      initialChunkSize: 256 * 1024,
+      maxChunkSize: 2 * 1024 * 1024,
+    });
+    if (request.signal) {
+      if (request.signal.aborted) {
+        nodeStream.destroy();
+      } else {
+        request.signal.addEventListener('abort', () => {
+          nodeStream.destroy();
+        });
+      }
     }
+    const webStream = Readable.toWeb(nodeStream);
+
+    return new Response(webStream as any, {
+      status: 200,
+      headers: {
+        'Content-Type': mimeType,
+        'Content-Length': fileSize.toString(),
+        'Content-Disposition': `inline; filename="${encodeURIComponent(fileName)}"`,
+        'Accept-Ranges': 'bytes',
+        'Cache-Control': 'public, max-age=31536000, immutable',
+      },
+    });
   } catch (error) {
     console.error('Error streaming MEGA file:', error);
     return NextResponse.json({ error: 'Failed to stream media file' }, { status: 500 });

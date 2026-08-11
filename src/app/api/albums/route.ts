@@ -68,12 +68,49 @@ export async function POST(request: Request) {
       );
     }
 
+    // ─── DEDUPLICATION CHECK ───
+    const existingAlbums = await getAllAlbums();
+    const cleanMegaUrl = megaUrl.trim();
+    const cleanTitle = title.trim();
+
+    // 1. Deduplicate by MEGA URL or Folder ID
+    const duplicateByUrl = existingAlbums.find((alb) => {
+      if (alb.mega_link.trim() === cleanMegaUrl) return true;
+      const albParsed = parseMegaUrl(alb.mega_link);
+      return albParsed && albParsed.folderId === parsed.folderId;
+    });
+
+    if (duplicateByUrl) {
+      return NextResponse.json(
+        {
+          error: `This MEGA folder is already in your vault as "${duplicateByUrl.title}".`,
+          existingAlbumId: duplicateByUrl.id,
+        },
+        { status: 409 }
+      );
+    }
+
+    // 2. Deduplicate by Album Title (case-insensitive)
+    const duplicateByTitle = existingAlbums.find(
+      (alb) => alb.title.trim().toLowerCase() === cleanTitle.toLowerCase()
+    );
+
+    if (duplicateByTitle) {
+      return NextResponse.json(
+        {
+          error: `An album named "${duplicateByTitle.title}" already exists.`,
+          existingAlbumId: duplicateByTitle.id,
+        },
+        { status: 409 }
+      );
+    }
+
     const id = `alb-${Date.now()}`;
     const album = await createAlbum({
       id,
-      title: title.trim(),
+      title: cleanTitle,
       description: description?.trim() || undefined,
-      megaLink: megaUrl.trim(),
+      megaLink: cleanMegaUrl,
     });
 
     return NextResponse.json({ success: true, album });

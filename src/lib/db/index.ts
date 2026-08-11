@@ -204,6 +204,8 @@ function getLocalDb(): Database.Database {
   if (!localDb) {
     localDb = new Database(dbPath);
     localDb.pragma('journal_mode = WAL');
+    localDb.pragma('synchronous = NORMAL');
+    localDb.pragma('temp_store = MEMORY');
 
     localDb.exec(`
       CREATE TABLE IF NOT EXISTS albums (
@@ -521,13 +523,15 @@ export async function saveVideoThumbnail(albumId: string, handle: string, thumbn
     }
   }
 
-  try {
-    const db = getLocalDb();
-    const stmt = db.prepare(`INSERT OR REPLACE INTO video_thumbnails (album_id, handle, thumbnail_data, created_at) VALUES (?, ?, ?, ?)`);
-    stmt.run(albumId, handle, thumbnailData, now);
-  } catch (e) {
-    console.error('Local DB saveVideoThumbnail error:', e);
-  }
+  setImmediate(() => {
+    try {
+      const db = getLocalDb();
+      const stmt = db.prepare(`INSERT OR REPLACE INTO video_thumbnails (album_id, handle, thumbnail_data, created_at) VALUES (?, ?, ?, ?)`);
+      stmt.run(albumId, handle, thumbnailData, now);
+    } catch (e) {
+      console.error('Local DB saveVideoThumbnail error:', e);
+    }
+  });
 }
 
 export async function getVideoThumbnail(albumId: string, handle: string): Promise<string | null> {

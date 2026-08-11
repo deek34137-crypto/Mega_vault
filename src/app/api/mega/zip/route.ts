@@ -64,8 +64,8 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'No media items found to download' }, { status: 404 });
     }
 
-    // Create Zip Archiver Stream
-    const archive = archiver('zip', { zlib: { level: 5 } });
+    // Create Zip Archiver Stream with level 0 (store mode) for maximum streaming throughput
+    const archive = archiver('zip', { zlib: { level: 0 } });
 
     // Handle archiver errors
     archive.on('error', (err: any) => {

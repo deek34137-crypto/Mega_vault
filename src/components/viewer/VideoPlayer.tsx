@@ -48,12 +48,20 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showOverlay, setShowOverlay] = useState(true);
   const overlayTimeout = useRef<NodeJS.Timeout | null>(null);
   const touchStartX = useRef<number | null>(null);
   const touchStartY = useRef<number | null>(null);
   const capturedRef = useRef<boolean>(false);
+
+  const changeSpeed = useCallback((speed: number) => {
+    setPlaybackRate(speed);
+    if (videoRef.current) {
+      videoRef.current.playbackRate = speed;
+    }
+  }, []);
 
   useEffect(() => {
     capturedRef.current = false;
@@ -247,11 +255,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         onPlay={() => {
           setIsPlaying(true);
           setIsBuffering(false);
+          if (videoRef.current && playbackRate !== 1) {
+            videoRef.current.playbackRate = playbackRate;
+          }
         }}
         onPause={() => setIsPlaying(false)}
         onWaiting={() => setIsBuffering(true)}
         onPlaying={() => {
           setIsBuffering(false);
+          if (videoRef.current && playbackRate !== 1) {
+            videoRef.current.playbackRate = playbackRate;
+          }
           captureThumbnail();
         }}
         onSeeking={() => setIsBuffering(true)}
@@ -273,8 +287,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }
           }
         }}
-        onLoadedMetadata={() => videoRef.current && setDuration(videoRef.current.duration)}
-        onEnded={() => setIsPlaying(false)}
+        onLoadedMetadata={() => {
+          if (videoRef.current) {
+            setDuration(videoRef.current.duration);
+            videoRef.current.playbackRate = playbackRate;
+          }
+        }}
+        onEnded={() => {
+          setIsPlaying(false);
+          if (onNext) onNext();
+        }}
         onError={async () => {
           setIsBuffering(false);
           // Check if session is expired
@@ -299,15 +321,22 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             </div>
             <h4 className="text-base font-bold text-white mb-1">Playback Error</h4>
             <p className="text-xs text-zinc-400 mb-6">
-              Could not load video stream. Your login session may have expired, or the connection timed out.
+              Could not load video stream. Your connection may have timed out or the stream was interrupted.
             </p>
             <div className="flex items-center justify-center gap-3">
-              <a
-                href="/login"
-                className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold"
+              <button
+                onClick={() => {
+                  setHasError(false);
+                  setIsBuffering(true);
+                  if (videoRef.current) {
+                    videoRef.current.load();
+                    videoRef.current.play().catch(() => {});
+                  }
+                }}
+                className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition-all shadow-md shadow-blue-600/30"
               >
-                Log In Again
-              </a>
+                Retry Playback
+              </button>
               <button
                 onClick={onClose}
                 className="px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold"
@@ -483,8 +512,21 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   setVolume(val);
                   if (videoRef.current) videoRef.current.volume = val;
                 }}
-                className="w-16 sm:w-20 h-1 bg-zinc-700 accent-blue-500 rounded cursor-pointer"
-              />
+            {/* Playback Speed Selector */}
+            <div className="flex items-center space-x-1 pl-2 border-l border-zinc-800">
+              {[0.5, 1.0, 1.25, 1.5, 2.0].map((rate) => (
+                <button
+                  key={rate}
+                  onClick={() => changeSpeed(rate)}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-all ${
+                    playbackRate === rate
+                      ? 'bg-blue-600 text-white font-bold'
+                      : 'bg-zinc-800/80 text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  {rate}x
+                </button>
+              ))}
             </div>
           </div>
 
