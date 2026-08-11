@@ -20,6 +20,10 @@ export async function GET(
     const { id } = await params;
     const { searchParams } = new URL(request.url);
     const subfolderPath = searchParams.get('folder') || undefined;
+    const pageParam = searchParams.get('page');
+    const limitParam = searchParams.get('limit');
+    const typeParam = searchParams.get('type') || 'all';
+    const searchQuery = searchParams.get('search') || '';
 
     let album = await getAlbumById(id);
 
@@ -63,7 +67,40 @@ export async function GET(
       updatedAt: album.updated_at ?? album.created_at,
     };
 
-    return NextResponse.json({ album: safeAlbum, ...result });
+    let items = result.items || [];
+    if (searchQuery.trim() !== '') {
+      const q = searchQuery.toLowerCase();
+      items = items.filter((m: any) => m.fileName.toLowerCase().includes(q));
+    }
+    if (typeParam === 'images') {
+      items = items.filter((m: any) => m.mediaType === 'IMAGE');
+    } else if (typeParam === 'videos') {
+      items = items.filter((m: any) => m.mediaType === 'VIDEO');
+    }
+
+    let paginationData = undefined;
+    if (pageParam || limitParam) {
+      const page = Math.max(1, parseInt(pageParam || '1', 10));
+      const limit = Math.max(1, parseInt(limitParam || '24', 10));
+      const totalItems = items.length;
+      const totalPages = Math.ceil(totalItems / limit) || 1;
+      const startIndex = (page - 1) * limit;
+      items = items.slice(startIndex, startIndex + limit);
+
+      paginationData = {
+        totalItems,
+        totalPages,
+        currentPage: page,
+        limit,
+      };
+    }
+
+    return NextResponse.json({
+      album: safeAlbum,
+      ...result,
+      items,
+      ...(paginationData ? { pagination: paginationData } : {}),
+    });
   } catch (error) {
     console.error('Error fetching album media:', error);
     return NextResponse.json({

@@ -16,7 +16,7 @@ function getSecretKey(): Uint8Array {
   return new TextEncoder().encode(secret);
 }
 
-const PUBLIC_PATHS = ['/login', '/api/auth/login', '/_next', '/favicon.ico'];
+const PUBLIC_PATHS = ['/login', '/api/auth/login', '/share', '/api/share', '/_next', '/favicon.ico'];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;

@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { MediaCard } from '@/components/gallery/MediaCard';
+import { VirtualizedMediaGrid } from '@/components/gallery/VirtualizedMediaGrid';
+import { ShareModal } from '@/components/ui/ShareModal';
 import { VideoPlayer } from '@/components/viewer/VideoPlayer';
 import { ImageLightbox } from '@/components/viewer/ImageLightbox';
 import { Pagination } from '@/components/ui/Pagination';
@@ -31,6 +33,7 @@ import {
   HelpCircle,
   Keyboard,
   Star,
+  Share2,
 } from 'lucide-react';
 import { formatBytes, formatDate } from '@/lib/utils/cn';
 
@@ -68,9 +71,10 @@ function AlbumContent() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
 
-  // Slideshow & Hotkeys States
+  // Slideshow & Hotkeys & Sharing States
   const [isSlideshow, setIsSlideshow] = useState(false);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
 
   const toggleSelectMedia = useCallback((item: MediaItem) => {
     setSelectedIds((prev) => {
@@ -362,7 +366,15 @@ function AlbumContent() {
             )}
           </div>
 
-          <div className="flex items-center space-x-3 w-full sm:w-auto">
+          <div className="flex items-center space-x-2 sm:space-x-3 w-full sm:w-auto">
+            <button
+              onClick={() => setIsShareModalOpen(true)}
+              className="w-full sm:w-auto justify-center px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold flex items-center gap-2 transition-all shadow-md shadow-purple-600/20"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+              <span>Share Gallery</span>
+            </button>
+
             <button
               onClick={() => {
                 const link = document.createElement('a');
@@ -608,63 +620,31 @@ function AlbumContent() {
         </div>
       )}
 
-      {/* Media Grid (Numbered Page Pagination) */}
+      {/* Media Grid (60 FPS Virtualized Responsive Grid) */}
       {isLoading ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5 sm:gap-4">
           {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((i) => (
             <div key={i} className="aspect-square rounded-2xl bg-zinc-900/60 animate-pulse border border-zinc-800" />
           ))}
         </div>
-      ) : filteredMedia.length === 0 && subfolders.length === 0 ? (
-        <div className="glass-panel p-8 sm:p-12 rounded-3xl text-center border border-zinc-800 my-8">
-          <p className="text-sm text-zinc-400 mb-2">No media items found in this folder.</p>
-          <p className="text-xs text-zinc-500">Click "Refresh Album" to fetch folder contents from MEGA.</p>
-        </div>
       ) : (
-        <>
-          {/* Top Pagination Control */}
-          <Pagination
-            currentPage={currentPage}
-            totalPages={totalPages}
-            totalItems={filteredMedia.length}
-            itemsPerPage={ITEMS_PER_PAGE}
-            onPageChange={(p) => {
-              setCurrentPage(p);
-              window.scrollTo({ top: 300, behavior: 'smooth' });
-            }}
-            accentColor="blue"
-          />
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5 sm:gap-4">
-            {pageMedia.map((media) => {
-              const filteredIdx = filteredMedia.findIndex((m) => m.id === media.id);
-              return (
-                <MediaCard
-                  key={media.id}
-                  media={media}
-                  isSelectMode={isSelectMode}
-                  isSelected={selectedIds.has(media.id)}
-                  onSelectToggle={toggleSelectMedia}
-                  onClick={() => setSelectedIndex(filteredIdx)}
-                />
-              );
-            })}
-          </div>
-
-          {/* Bottom Pagination Control */}
-          <Pagination
-            currentPage={currentPage}
-            totalPages={totalPages}
-            totalItems={filteredMedia.length}
-            itemsPerPage={ITEMS_PER_PAGE}
-            onPageChange={(p) => {
-              setCurrentPage(p);
-              window.scrollTo({ top: 300, behavior: 'smooth' });
-            }}
-            accentColor="blue"
-          />
-        </>
+        <VirtualizedMediaGrid
+          items={filteredMedia}
+          onItemClick={(_, index) => setSelectedIndex(index)}
+          isSelectMode={isSelectMode}
+          selectedIds={selectedIds}
+          onSelectToggle={toggleSelectMedia}
+        />
       )}
+
+      {/* Share Modal */}
+      <ShareModal
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+        albumId={albumId}
+        albumTitle={album?.title || 'Album'}
+        subfolderPath={folderParam}
+      />
 
       {/* Custom Video Player Modal */}
       {selectedMedia && selectedMedia.mediaType === 'VIDEO' && (

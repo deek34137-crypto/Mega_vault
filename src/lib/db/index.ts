@@ -181,6 +181,16 @@ async function ensureTursoSchema(client: Client): Promise<void> {
       created_at TEXT NOT NULL
     );
   `);
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS share_links (
+      token TEXT PRIMARY KEY,
+      album_id TEXT NOT NULL,
+      subfolder_path TEXT,
+      pin_hash TEXT,
+      expires_at TEXT,
+      created_at TEXT NOT NULL
+    );
+  `);
   // Non-destructive migrations & performance indexes
   try {
     await client.execute(`ALTER TABLE albums ADD COLUMN updated_at TEXT;`);
@@ -196,6 +206,9 @@ async function ensureTursoSchema(client: Client): Promise<void> {
   } catch {}
   try {
     await client.execute(`CREATE INDEX IF NOT EXISTS idx_albums_created_at ON albums(created_at);`);
+  } catch {}
+  try {
+    await client.execute(`CREATE INDEX IF NOT EXISTS idx_share_links_token ON share_links(token);`);
   } catch {}
   tursoInitialized = true;
 }
@@ -235,9 +248,18 @@ function getLocalDb(): Database.Database {
         thumbnail_url TEXT,
         created_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS share_links (
+        token TEXT PRIMARY KEY,
+        album_id TEXT NOT NULL,
+        subfolder_path TEXT,
+        pin_hash TEXT,
+        expires_at TEXT,
+        created_at TEXT NOT NULL
+      );
       CREATE INDEX IF NOT EXISTS idx_video_thumbnails_album ON video_thumbnails(album_id);
       CREATE INDEX IF NOT EXISTS idx_favorites_album ON favorites(album_id);
       CREATE INDEX IF NOT EXISTS idx_albums_created_at ON albums(created_at);
+      CREATE INDEX IF NOT EXISTS idx_share_links_token ON share_links(token);
     `);
 
     try {
@@ -265,10 +287,29 @@ function ensureDataDir(): void {
   }
 }
 
+let albumBackupTimer: NodeJS.Timeout | null = null;
+let pendingAlbumsBackup: DbAlbum[] | null = null;
+
 function syncBackup(albums: DbAlbum[]): void {
-  ensureDataDir();
-  fs.promises.writeFile(backupFilePath, JSON.stringify(albums, null, 2), 'utf8')
-    .catch((e) => console.error('Failed to write albums backup:', e));
+  pendingAlbumsBackup = albums;
+  if (albumBackupTimer) clearTimeout(albumBackupTimer);
+  albumBackupTimer = setTimeout(async () => {
+    if (!pendingAlbumsBackup) return;
+    const dataToWrite = pendingAlbumsBackup;
+    pendingAlbumsBackup = null;
+    albumBackupTimer = null;
+    ensureDataDir();
+    const tempPath = `${backupFilePath}.${Date.now()}.tmp`;
+    try {
+      await fs.promises.writeFile(tempPath, JSON.stringify(dataToWrite, null, 2), 'utf8');
+      await fs.promises.rename(tempPath, backupFilePath);
+    } catch (e) {
+      console.error('Failed to write albums backup:', e);
+      try {
+        if (fs.existsSync(tempPath)) await fs.promises.unlink(tempPath);
+      } catch {}
+    }
+  }, 500);
 }
 
 function loadBackup(): DbAlbum[] {
@@ -623,10 +664,29 @@ export async function updateAlbumCoverImage(albumId: string, coverImageUrl: stri
 
 const favoritesBackupFilePath = path.join(dataDir, 'favorites_backup.json');
 
+let favBackupTimer: NodeJS.Timeout | null = null;
+let pendingFavoritesBackup: DbFavorite[] | null = null;
+
 function syncFavoritesBackup(favorites: DbFavorite[]): void {
-  ensureDataDir();
-  fs.promises.writeFile(favoritesBackupFilePath, JSON.stringify(favorites, null, 2), 'utf8')
-    .catch((e) => console.error('Failed to write favorites backup:', e));
+  pendingFavoritesBackup = favorites;
+  if (favBackupTimer) clearTimeout(favBackupTimer);
+  favBackupTimer = setTimeout(async () => {
+    if (!pendingFavoritesBackup) return;
+    const dataToWrite = pendingFavoritesBackup;
+    pendingFavoritesBackup = null;
+    favBackupTimer = null;
+    ensureDataDir();
+    const tempPath = `${favoritesBackupFilePath}.${Date.now()}.tmp`;
+    try {
+      await fs.promises.writeFile(tempPath, JSON.stringify(dataToWrite, null, 2), 'utf8');
+      await fs.promises.rename(tempPath, favoritesBackupFilePath);
+    } catch (e) {
+      console.error('Failed to write favorites backup:', e);
+      try {
+        if (fs.existsSync(tempPath)) await fs.promises.unlink(tempPath);
+      } catch {}
+    }
+  }, 500);
 }
 
 function loadFavoritesBackup(): DbFavorite[] {
@@ -804,6 +864,157 @@ export async function getFavoriteHandles(albumId?: string): Promise<Set<string>>
     }
   }
   return set;
+}
+
+// ─── SHARE LINKS DATABASE HELPERS ───
+
+export interface DbShareLink {
+  token: string;
+  album_id: string;
+  subfolder_path?: string | null;
+  pin_hash?: string | null;
+  expires_at?: string | null;
+  created_at: string;
+}
+
+export async function createShareLink(link: {
+  token: string;
+  albumId: string;
+  subfolderPath?: string | null;
+  pinHash?: string | null;
+  expiresAt?: string | null;
+}): Promise<DbShareLink> {
+  const now = new Date().toISOString();
+  const record: DbShareLink = {
+    token: link.token,
+    album_id: link.albumId,
+    subfolder_path: link.subfolderPath || null,
+    pin_hash: link.pinHash || null,
+    expires_at: link.expiresAt || null,
+    created_at: now,
+  };
+
+  const client = getTursoClient();
+  if (client) {
+    try {
+      await ensureTursoSchema(client);
+      await client.execute({
+        sql: `INSERT OR REPLACE INTO share_links (token, album_id, subfolder_path, pin_hash, expires_at, created_at)
+              VALUES (?, ?, ?, ?, ?, ?)`,
+        args: [record.token, record.album_id, record.subfolder_path ?? null, record.pin_hash ?? null, record.expires_at ?? null, now],
+      });
+    } catch (e) {
+      console.error('Turso createShareLink error:', e);
+    }
+  }
+
+  try {
+    const db = getLocalDb();
+    const stmt = db.prepare(`
+      INSERT OR REPLACE INTO share_links (token, album_id, subfolder_path, pin_hash, expires_at, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(record.token, record.album_id, record.subfolder_path, record.pin_hash, record.expires_at, now);
+  } catch (e) {
+    console.error('Local DB createShareLink error:', e);
+  }
+
+  return record;
+}
+
+export async function getShareLinkByToken(token: string): Promise<DbShareLink | undefined> {
+  const client = getTursoClient();
+  if (client) {
+    try {
+      await ensureTursoSchema(client);
+      const res = await client.execute({
+        sql: 'SELECT * FROM share_links WHERE token = ?',
+        args: [token],
+      });
+      if (res.rows.length > 0) {
+        const row: any = res.rows[0];
+        return {
+          token: row.token,
+          album_id: row.album_id,
+          subfolder_path: row.subfolder_path,
+          pin_hash: row.pin_hash,
+          expires_at: row.expires_at,
+          created_at: row.created_at,
+        };
+      }
+    } catch (e) {
+      console.error('Turso getShareLinkByToken error:', e);
+    }
+  }
+
+  try {
+    const db = getLocalDb();
+    const stmt = db.prepare('SELECT * FROM share_links WHERE token = ?');
+    const row = stmt.get(token) as DbShareLink | undefined;
+    if (row) return row;
+  } catch (e) {
+    console.error('Local DB getShareLinkByToken error:', e);
+  }
+
+  return undefined;
+}
+
+export async function deleteShareLink(token: string): Promise<boolean> {
+  let success = false;
+  const client = getTursoClient();
+  if (client) {
+    try {
+      await ensureTursoSchema(client);
+      const res = await client.execute({
+        sql: 'DELETE FROM share_links WHERE token = ?',
+        args: [token],
+      });
+      if (res.rowsAffected > 0) success = true;
+    } catch (e) {
+      console.error('Turso deleteShareLink error:', e);
+    }
+  }
+
+  try {
+    const db = getLocalDb();
+    const stmt = db.prepare('DELETE FROM share_links WHERE token = ?');
+    const info = stmt.run(token);
+    if (info.changes > 0) success = true;
+  } catch (e) {
+    console.error('Local DB deleteShareLink error:', e);
+  }
+
+  return success;
+}
+
+export async function getAllShareLinks(): Promise<DbShareLink[]> {
+  const client = getTursoClient();
+  if (client) {
+    try {
+      await ensureTursoSchema(client);
+      const res = await client.execute('SELECT * FROM share_links ORDER BY created_at DESC');
+      return res.rows.map((row: any) => ({
+        token: row.token,
+        album_id: row.album_id,
+        subfolder_path: row.subfolder_path,
+        pin_hash: row.pin_hash,
+        expires_at: row.expires_at,
+        created_at: row.created_at,
+      }));
+    } catch (e) {
+      console.error('Turso getAllShareLinks error:', e);
+    }
+  }
+
+  try {
+    const db = getLocalDb();
+    const stmt = db.prepare('SELECT * FROM share_links ORDER BY created_at DESC');
+    return stmt.all() as DbShareLink[];
+  } catch (e) {
+    console.error('Local DB getAllShareLinks error:', e);
+  }
+
+  return [];
 }
 
 

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getAlbumById } from '@/lib/db';
+import { getAlbumById, getShareLinkByToken } from '@/lib/db';
 import { getMegaFileByHandle, fetchMegaFolderMedia } from '@/lib/mega';
 import { isAuthenticated } from '@/lib/auth';
 import { imageBufferCache, videoChunkCache } from '@/lib/cache';
@@ -9,15 +9,24 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 export async function GET(request: Request) {
-  const auth = await isAuthenticated();
-  if (!auth) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
   const { searchParams } = new URL(request.url);
   const albumId = searchParams.get('albumId');
   const handle = searchParams.get('handle');
+  const shareToken = searchParams.get('shareToken');
   const isDownload = searchParams.get('download') === 'true';
+
+  let authorized = await isAuthenticated();
+  if (!authorized && shareToken && albumId) {
+    const link = await getShareLinkByToken(shareToken);
+    if (link && link.album_id === albumId) {
+      const notExpired = !link.expires_at || new Date(link.expires_at).getTime() > Date.now();
+      if (notExpired) authorized = true;
+    }
+  }
+
+  if (!authorized) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
 
   if (!albumId || !handle) {
     return NextResponse.json({ error: 'Album ID and File handle required' }, { status: 400 });

@@ -33,66 +33,96 @@ function getGradientFromFileName(name: string): string {
 }
 
 const sampledCache = new Map<string, string>();
+const MAX_CONCURRENT_SAMPLING = 2;
+let activeSamplingCount = 0;
+const samplingQueue: Array<() => void> = [];
+
+function enqueueSamplingTask<T>(taskFn: () => Promise<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const execute = () => {
+      activeSamplingCount++;
+      taskFn()
+        .then(resolve)
+        .catch(reject)
+        .finally(() => {
+          activeSamplingCount--;
+          if (samplingQueue.length > 0) {
+            const next = samplingQueue.shift();
+            if (next) next();
+          }
+        });
+    };
+
+    if (activeSamplingCount < MAX_CONCURRENT_SAMPLING) {
+      execute();
+    } else {
+      samplingQueue.push(execute);
+    }
+  });
+}
 
 async function sampleVideoFrame(streamUrl: string, albumId: string, handle: string): Promise<string | null> {
   const cacheKey = `${albumId}_${handle}`;
   if (sampledCache.has(cacheKey)) return sampledCache.get(cacheKey)!;
 
-  return new Promise((resolve) => {
-    const video = document.createElement('video');
-    video.crossOrigin = 'anonymous';
-    video.muted = true;
-    video.preload = 'metadata';
-    video.src = streamUrl;
+  return enqueueSamplingTask(
+    () =>
+      new Promise<string | null>((resolve) => {
+        const video = document.createElement('video');
+        video.crossOrigin = 'anonymous';
+        video.muted = true;
+        video.preload = 'metadata';
+        video.src = streamUrl;
 
-    const timeout = setTimeout(() => {
-      video.remove();
-      resolve(null);
-    }, 10000);
-
-    video.onloadeddata = () => {
-      video.currentTime = 1.0;
-    };
-
-    video.onseeked = () => {
-      clearTimeout(timeout);
-      try {
-        const canvas = document.createElement('canvas');
-        const aspect = (video.videoWidth || 16) / (video.videoHeight || 9);
-        const targetWidth = 400;
-        canvas.width = targetWidth;
-        canvas.height = Math.round(targetWidth / aspect);
-
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.75);
-          sampledCache.set(cacheKey, dataUrl);
-
-          // Save thumbnail in background DB
-          fetch('/api/mega/thumbnail', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ albumId, handle, thumbnailDataUrl: dataUrl }),
-          }).catch(() => {});
-
-          resolve(dataUrl);
-        } else {
+        const timeout = setTimeout(() => {
+          video.remove();
           resolve(null);
-        }
-      } catch (err) {
-        resolve(null);
-      } finally {
-        video.remove();
-      }
-    };
+        }, 10000);
 
-    video.onerror = () => {
-      clearTimeout(timeout);
-      video.remove();
-      resolve(null);
-    };
-  });
+        video.onloadeddata = () => {
+          video.currentTime = 1.0;
+        };
+
+        video.onseeked = () => {
+          clearTimeout(timeout);
+          try {
+            const canvas = document.createElement('canvas');
+            const aspect = (video.videoWidth || 16) / (video.videoHeight || 9);
+            const targetWidth = 400;
+            canvas.width = targetWidth;
+            canvas.height = Math.round(targetWidth / aspect);
+
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+              const dataUrl = canvas.toDataURL('image/jpeg', 0.75);
+              sampledCache.set(cacheKey, dataUrl);
+
+              // Save thumbnail in background DB
+              fetch('/api/mega/thumbnail', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ albumId, handle, thumbnailDataUrl: dataUrl }),
+              }).catch(() => {});
+
+              resolve(dataUrl);
+            } else {
+              resolve(null);
+            }
+          } catch (err) {
+            resolve(null);
+          } finally {
+            video.remove();
+          }
+        };
+
+        video.onerror = () => {
+          clearTimeout(timeout);
+          video.remove();
+          resolve(null);
+        };
+      })
+  );
 }
 
 export const MediaCard: React.FC<MediaCardProps> = ({

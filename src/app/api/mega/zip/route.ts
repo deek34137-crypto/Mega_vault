@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { isAuthenticated } from '@/lib/auth';
-import { getAlbumById, getAllFavorites } from '@/lib/db';
+import { getAlbumById, getAllFavorites, getShareLinkByToken } from '@/lib/db';
 import { fetchMegaFolderMedia, getMegaFileByHandle } from '@/lib/mega';
 import * as archiverModule from 'archiver';
 import { Readable } from 'stream';
@@ -11,16 +11,25 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // Allow up to 5 mins for streaming zip
 
 export async function GET(request: Request) {
-  const auth = await isAuthenticated();
-  if (!auth) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
   const { searchParams } = new URL(request.url);
   const albumId = searchParams.get('albumId');
   const subfolder = searchParams.get('subfolder') || undefined;
   const handlesParam = searchParams.get('handles'); // optional comma-separated handles
   const isFavoritesZip = searchParams.get('favorites') === 'true';
+  const shareToken = searchParams.get('shareToken');
+
+  let authorized = await isAuthenticated();
+  if (!authorized && shareToken && albumId) {
+    const link = await getShareLinkByToken(shareToken);
+    if (link && link.album_id === albumId) {
+      const notExpired = !link.expires_at || new Date(link.expires_at).getTime() > Date.now();
+      if (notExpired) authorized = true;
+    }
+  }
+
+  if (!authorized) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
 
   try {
     let itemsToZip: { albumId: string; fileHandle: string; fileName: string }[] = [];
@@ -72,24 +81,39 @@ export async function GET(request: Request) {
       console.error('[MegaVault ZIP Stream Error]:', err);
     });
 
-    // Asynchronously fetch each MEGA file node and append download stream to archive
+    // Asynchronously fetch MEGA file nodes in parallel (concurrency = 4) and append download streams to archive
     (async () => {
-      for (const item of itemsToZip) {
-        try {
-          const album = await getAlbumById(item.albumId);
-          if (!album || !album.mega_link) continue;
+      const albumCache = new Map<string, any>();
+      const CONCURRENCY_LIMIT = 4;
+      let currentIndex = 0;
 
-          const fileNode = await getMegaFileByHandle(album.id, album.mega_link, item.fileHandle);
-          if (fileNode && typeof fileNode.download === 'function') {
-            const nodeStream = fileNode.download();
-            archive.append(nodeStream, { name: item.fileName });
-          } else {
-            console.warn(`[MegaVault ZIP] Could not locate file handle ${item.fileHandle} for ${item.fileName}`);
+      const worker = async () => {
+        while (currentIndex < itemsToZip.length) {
+          const index = currentIndex++;
+          const item = itemsToZip[index];
+          try {
+            let album = albumCache.get(item.albumId);
+            if (!album) {
+              album = await getAlbumById(item.albumId);
+              if (album) albumCache.set(item.albumId, album);
+            }
+            if (!album || !album.mega_link) continue;
+
+            const fileNode = await getMegaFileByHandle(album.id, album.mega_link, item.fileHandle);
+            if (fileNode && typeof fileNode.download === 'function') {
+              const nodeStream = fileNode.download();
+              archive.append(nodeStream, { name: item.fileName });
+            } else {
+              console.warn(`[MegaVault ZIP] Could not locate file handle ${item.fileHandle} for ${item.fileName}`);
+            }
+          } catch (itemErr) {
+            console.error(`[MegaVault ZIP] Failed to append ${item.fileName}:`, itemErr);
           }
-        } catch (itemErr) {
-          console.error(`[MegaVault ZIP] Failed to append ${item.fileName}:`, itemErr);
         }
-      }
+      };
+
+      const workers = Array.from({ length: Math.min(CONCURRENCY_LIMIT, itemsToZip.length) }, () => worker());
+      await Promise.all(workers);
       archive.finalize();
     })();
 
