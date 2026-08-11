@@ -362,18 +362,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
       {/* Top Header Overlay */}
       <div
-        className={`absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/80 via-black/40 to-transparent flex items-center justify-between transition-opacity duration-300 z-20 ${
+        className={`absolute top-0 left-0 right-0 p-3 sm:p-4 bg-gradient-to-b from-black/80 via-black/40 to-transparent flex items-center justify-between transition-opacity duration-300 z-20 gap-2 ${
           showOverlay ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
       >
-        <div>
-          <h3 className="text-sm font-bold text-white font-mono">{media.fileName}</h3>
-          <p className="text-xs text-zinc-400">
+        <div className="min-w-0">
+          <h3 className="text-xs sm:text-sm font-bold text-white font-mono truncate max-w-[35vw] sm:max-w-xs">{media.fileName}</h3>
+          <p className="text-[10px] sm:text-xs text-zinc-400">
             {formatBytes(media.size)} {currentIndex !== undefined && totalCount ? `• ${currentIndex + 1} of ${totalCount}` : ''}
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
           {/* Favorite Button */}
           <button
             onClick={async (e) => {
@@ -397,13 +397,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               } catch (err) {}
             }}
             title={media.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
-            className={`p-2.5 rounded-full border transition-all ${
+            className={`p-2 sm:p-2.5 rounded-full border transition-all ${
               media.isFavorite
                 ? 'bg-amber-500/20 border-amber-500/40 text-amber-400'
                 : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-700/70'
             }`}
           >
-            <Star className={`w-5 h-5 ${media.isFavorite ? 'fill-amber-400 text-amber-400' : ''}`} />
+            <Star className={`w-4 h-4 sm:w-5 sm:h-5 ${media.isFavorite ? 'fill-amber-400 text-amber-400' : ''}`} />
           </button>
 
           {/* Download Button */}
@@ -412,28 +412,28 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             download={media.fileName}
             onClick={(e) => e.stopPropagation()}
             title="Download video"
-            className="p-2.5 rounded-full bg-zinc-900/80 hover:bg-emerald-600 text-zinc-300 hover:text-white border border-zinc-700/70 transition-all"
+            className="p-2 sm:p-2.5 rounded-full bg-zinc-900/80 hover:bg-emerald-600 text-zinc-300 hover:text-white border border-zinc-700/70 transition-all"
           >
-            <Download className="w-5 h-5" />
+            <Download className="w-4 h-4 sm:w-5 sm:h-5" />
           </a>
           <button
             onClick={onClose}
-            className="p-2.5 rounded-full bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-700/70"
+            className="p-2 sm:p-2.5 rounded-full bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-700/70"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
         </div>
       </div>
 
       {/* Bottom Controls Bar Overlay */}
       <div
-        className={`absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black/90 via-black/50 to-transparent transition-opacity duration-300 z-20 ${
+        className={`absolute bottom-0 left-0 right-0 p-3 sm:p-6 bg-gradient-to-t from-black/90 via-black/50 to-transparent transition-opacity duration-300 z-20 ${
           showOverlay ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
       >
         {/* Timeline Seekbar */}
-        <div className="flex items-center space-x-3 mb-4">
-          <span className="text-xs font-mono text-zinc-300">{formatDuration(currentTime)}</span>
+        <div className="flex items-center space-x-2 sm:space-x-3 mb-2 sm:mb-4">
+          <span className="text-[10px] sm:text-xs font-mono text-zinc-300">{formatDuration(currentTime)}</span>
           <input
             type="range"
             min={0}
@@ -446,29 +446,29 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }}
             className="flex-1 h-1.5 bg-zinc-700 accent-blue-500 rounded-lg cursor-pointer"
           />
-          <span className="text-xs font-mono text-zinc-400">{formatDuration(duration)}</span>
+          <span className="text-[10px] sm:text-xs font-mono text-zinc-400">{formatDuration(duration)}</span>
         </div>
 
         {/* Buttons Controls */}
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2 sm:space-x-4">
             <button
               onClick={togglePlay}
-              className="p-2.5 rounded-full bg-blue-600 hover:bg-blue-500 text-white transition-all shadow-md shadow-blue-600/30"
+              className="p-2 sm:p-2.5 rounded-full bg-blue-600 hover:bg-blue-500 text-white transition-all shadow-md shadow-blue-600/30"
             >
-              {isPlaying ? <Pause className="w-5 h-5 fill-white" /> : <Play className="w-5 h-5 fill-white translate-x-0.5" />}
+              {isPlaying ? <Pause className="w-4 h-4 sm:w-5 sm:h-5 fill-white" /> : <Play className="w-4 h-4 sm:w-5 sm:h-5 fill-white translate-x-0.5" />}
             </button>
 
-            <button onClick={() => seek(-5)} title="-5s (Left Arrow)" className="text-zinc-400 hover:text-white transition-colors">
-              <RotateCcw className="w-5 h-5" />
+            <button onClick={() => seek(-5)} title="-5s" className="text-zinc-400 hover:text-white transition-colors">
+              <RotateCcw className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>
 
-            <button onClick={() => seek(5)} title="+5s (Right Arrow)" className="text-zinc-400 hover:text-white transition-colors">
+            <button onClick={() => seek(5)} title="+5s" className="text-zinc-400 hover:text-white transition-colors">
               <RotateCw className="w-5 h-5" />
             </button>
 
             {/* Volume Control */}
-            <div className="flex items-center space-x-2 pl-2 border-l border-zinc-800">
+            <div className="hidden sm:flex items-center space-x-2 pl-2 border-l border-zinc-800">
               <button onClick={toggleMute} className="text-zinc-400 hover:text-white transition-colors">
                 {isMuted || volume === 0 ? <VolumeX className="w-5 h-5 text-red-400" /> : <Volume2 className="w-5 h-5" />}
               </button>
@@ -483,7 +483,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   setVolume(val);
                   if (videoRef.current) videoRef.current.volume = val;
                 }}
-                className="w-20 h-1 bg-zinc-700 accent-blue-500 rounded cursor-pointer"
+                className="w-16 sm:w-20 h-1 bg-zinc-700 accent-blue-500 rounded cursor-pointer"
               />
             </div>
           </div>

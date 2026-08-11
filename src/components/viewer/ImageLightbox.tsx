@@ -226,47 +226,47 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({
       </div>
 
       {/* Top Header Overlay Bar */}
-      <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 py-3 bg-gradient-to-b from-black/90 via-black/50 to-transparent pointer-events-none">
-        <div className="pointer-events-auto">
-          <p className="text-sm font-bold text-white font-mono truncate max-w-[45vw]">{media.fileName}</p>
-          <p className="text-xs text-zinc-400 flex items-center gap-2">
+      <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-3 sm:px-5 py-3 bg-gradient-to-b from-black/90 via-black/50 to-transparent pointer-events-none gap-2">
+        <div className="pointer-events-auto min-w-0">
+          <p className="text-xs sm:text-sm font-bold text-white font-mono truncate max-w-[35vw] sm:max-w-[45vw]">{media.fileName}</p>
+          <p className="text-[10px] sm:text-xs text-zinc-400 flex items-center gap-1.5 sm:gap-2">
             <span>{formatBytes(media.size)}</span>
             <span>•</span>
             <span>{currentIndex + 1} of {totalCount}</span>
             {isSlideshow && (
-              <span className="text-blue-400 font-bold flex items-center gap-1 animate-pulse">
-                • Slideshow Running ({slideshowSpeed}s)
+              <span className="text-blue-400 font-bold hidden sm:flex items-center gap-1 animate-pulse">
+                • Slideshow ({slideshowSpeed}s)
               </span>
             )}
           </p>
         </div>
 
-        <div className="flex items-center gap-2 pointer-events-auto relative">
+        <div className="flex items-center gap-1.5 sm:gap-2 pointer-events-auto relative flex-shrink-0">
           {/* Favorite Button */}
           <button
             onClick={handleFavClick}
             title={isFav ? 'Remove from favorites' : 'Add to favorites'}
-            className={`p-2.5 rounded-full border backdrop-blur-md transition-all ${
+            className={`p-2 sm:p-2.5 rounded-full border backdrop-blur-md transition-all ${
               isFav
                 ? 'bg-amber-500/20 border-amber-500/40 text-amber-400 shadow-md shadow-amber-500/10'
                 : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-700/70'
             }`}
           >
-            <Star className={`w-5 h-5 ${isFav ? 'fill-amber-400 text-amber-400' : ''}`} />
+            <Star className={`w-4 h-4 sm:w-5 sm:h-5 ${isFav ? 'fill-amber-400 text-amber-400' : ''}`} />
           </button>
 
           {/* Slideshow Speed Adjuster Dropdown */}
-          <div className="relative">
+          <div className="relative hidden xs:block">
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 setShowSpeedMenu(!showSpeedMenu);
               }}
               title="Adjust slideshow interval speed"
-              className="p-2.5 rounded-full bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border border-zinc-700/70 flex items-center gap-1 backdrop-blur-md transition-all text-xs font-semibold"
+              className="p-2 sm:p-2.5 rounded-full bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border border-zinc-700/70 flex items-center gap-1 backdrop-blur-md transition-all text-xs font-semibold"
             >
-              <Clock className="w-4 h-4 text-blue-400" />
-              <span>{slideshowSpeed}s</span>
+              <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-400" />
+              <span className="hidden sm:inline">{slideshowSpeed}s</span>
             </button>
 
             {showSpeedMenu && (
@@ -298,24 +298,24 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({
               e.stopPropagation();
               toggleSlideshow();
             }}
-            title={isSlideshow ? 'Pause Slideshow' : 'Play Auto-Slideshow (with Fullscreen)'}
-            className={`px-3.5 py-2 rounded-full text-xs font-bold flex items-center gap-1.5 border backdrop-blur-md transition-all shadow-lg ${
+            title={isSlideshow ? 'Pause Slideshow' : 'Play Auto-Slideshow'}
+            className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-full text-xs font-bold flex items-center gap-1.5 border backdrop-blur-md transition-all shadow-lg ${
               isSlideshow
                 ? 'bg-blue-600 border-blue-400 text-white shadow-blue-600/30'
                 : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-700/70'
             }`}
           >
-            {isSlideshow ? <Pause className="w-4 h-4 fill-white" /> : <Play className="w-4 h-4 fill-white translate-x-0.5" />}
-            <span>{isSlideshow ? 'Pause' : 'Slideshow'}</span>
+            {isSlideshow ? <Pause className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-white" /> : <Play className="w-3.5 h-3.5 sm:w-4 sm:h-4 fill-white translate-x-0.5" />}
+            <span className="hidden sm:inline">{isSlideshow ? 'Pause' : 'Slideshow'}</span>
           </button>
 
           {/* Fullscreen Toggle Button */}
           <button
             onClick={toggleFullscreen}
             title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen (F)'}
-            className="p-2.5 rounded-full bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-700/70 transition-all backdrop-blur-md"
+            className="p-2 sm:p-2.5 rounded-full bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-700/70 transition-all backdrop-blur-md hidden xs:block"
           >
-            {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
+            {isFullscreen ? <Minimize className="w-4 h-4 sm:w-5 sm:h-5" /> : <Maximize className="w-4 h-4 sm:w-5 sm:h-5" />}
           </button>
 
           {/* Download Button */}
@@ -324,9 +324,9 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({
             download={media.fileName}
             onClick={(e) => e.stopPropagation()}
             title="Download image"
-            className="p-2.5 rounded-full bg-zinc-900/80 hover:bg-emerald-600 text-zinc-300 hover:text-white border border-zinc-700/70 transition-all backdrop-blur-md"
+            className="p-2 sm:p-2.5 rounded-full bg-zinc-900/80 hover:bg-emerald-600 text-zinc-300 hover:text-white border border-zinc-700/70 transition-all backdrop-blur-md"
           >
-            <Download className="w-5 h-5" />
+            <Download className="w-4 h-4 sm:w-5 sm:h-5" />
           </a>
 
           {/* Close Button */}
@@ -336,9 +336,9 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({
               setIsSlideshow(false);
               onClose();
             }}
-            className="p-2.5 rounded-full bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-700/70 transition-all backdrop-blur-md"
+            className="p-2 sm:p-2.5 rounded-full bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-700/70 transition-all backdrop-blur-md"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
         </div>
       </div>

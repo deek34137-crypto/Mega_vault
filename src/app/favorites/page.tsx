@@ -7,6 +7,8 @@ import { MediaCard } from '@/components/gallery/MediaCard';
 import { VideoPlayer } from '@/components/viewer/VideoPlayer';
 import { ImageLightbox } from '@/components/viewer/ImageLightbox';
 import { Pagination } from '@/components/ui/Pagination';
+import { ToastContainer } from '@/components/ui/Toast';
+import { useToast } from '@/hooks/useToast';
 import { MediaItem, FilterMediaType } from '@/types';
 import {
   ArrowLeft,
@@ -32,6 +34,7 @@ import { formatBytes } from '@/lib/utils/cn';
 const ITEMS_PER_PAGE = 24;
 
 export default function FavoritesPage() {
+  const { toasts, toastSuccess, toastInfo, removeToast } = useToast();
   const [favorites, setFavorites] = useState<MediaItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [visibleCount, setVisibleCount] = useState(ITEMS_PER_PAGE);
@@ -187,6 +190,7 @@ export default function FavoritesPage() {
         }),
       });
     }
+    toastInfo('Unstarred Items', `Removed ${selectedItems.length} items from favorites.`);
     setSelectedIds(new Set());
     loadFavorites();
   };
@@ -195,8 +199,7 @@ export default function FavoritesPage() {
     const selectedItems = favorites.filter((m) => selectedIds.has(m.id));
     const links = selectedItems.map((m) => `${window.location.origin}${m.streamUrl}`).join('\n');
     navigator.clipboard.writeText(links);
-    setCopyMsg(`Copied ${selectedItems.length} stream links!`);
-    setTimeout(() => setCopyMsg(null), 3000);
+    toastSuccess('Links Copied!', `Copied ${selectedItems.length} direct stream links to clipboard.`);
   };
 
   // Keyboard navigation
@@ -548,6 +551,8 @@ export default function FavoritesPage() {
           onFavoriteToggle={() => loadFavorites()}
         />
       )}
+      {/* Toast Notifications */}
+      <ToastContainer toasts={toasts} onDismiss={removeToast} />
     </PageContainer>
   );
 }

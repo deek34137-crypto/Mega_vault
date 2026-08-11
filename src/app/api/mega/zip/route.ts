@@ -2,8 +2,10 @@ import { NextResponse } from 'next/server';
 import { isAuthenticated } from '@/lib/auth';
 import { getAlbumById, getAllFavorites } from '@/lib/db';
 import { fetchMegaFolderMedia, getMegaFileByHandle } from '@/lib/mega';
-import * as archiver from 'archiver';
+import * as archiverModule from 'archiver';
 import { Readable } from 'stream';
+
+const archiver = (archiverModule as any).default || archiverModule;
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // Allow up to 5 mins for streaming zip
@@ -63,8 +65,7 @@ export async function GET(request: Request) {
     }
 
     // Create Zip Archiver Stream
-    const createZip = (archiver as any).default || archiver;
-    const archive = createZip('zip', { zlib: { level: 5 } });
+    const archive = archiver('zip', { zlib: { level: 5 } });
 
     // Handle archiver errors
     archive.on('error', (err: any) => {

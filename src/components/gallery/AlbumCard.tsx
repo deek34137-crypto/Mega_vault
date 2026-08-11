@@ -106,10 +106,10 @@ export const AlbumCard: React.FC<AlbumCardProps> = ({ album, onDelete, onFavorit
               <button
                 onClick={handleFavoriteClick}
                 title={isFavorite ? 'Unstar album' : 'Star album'}
-                className={`p-2 rounded-full border backdrop-blur-md transition-all shadow-md ${
+                className={`p-2 rounded-full border backdrop-blur-md transition-all duration-300 shadow-md ${
                   isFavorite
-                    ? 'bg-amber-500/20 border-amber-500/40 text-amber-400 opacity-100'
-                    : 'bg-black/60 border-white/20 text-zinc-300 opacity-0 group-hover:opacity-100 hover:text-amber-400'
+                    ? 'bg-amber-500/25 border-amber-500/50 text-amber-400 opacity-100 shadow-amber-500/20'
+                    : 'bg-black/60 border-white/20 text-zinc-300 opacity-0 group-hover:opacity-100 hover:text-amber-400 hover:scale-110 hover:border-amber-500/40'
                 }`}
               >
                 <Star className={`w-3.5 h-3.5 ${isFavorite ? 'fill-amber-400 text-amber-400 scale-110' : ''}`} />
@@ -120,7 +120,7 @@ export const AlbumCard: React.FC<AlbumCardProps> = ({ album, onDelete, onFavorit
                 <button
                   onClick={handleDelete}
                   title="Remove Album"
-                  className="p-2 rounded-full bg-red-600/80 hover:bg-red-600 text-white backdrop-blur-md transition-all shadow-md opacity-0 group-hover:opacity-100"
+                  className="p-2 rounded-full bg-rose-600/80 hover:bg-rose-600 text-white backdrop-blur-md transition-all shadow-md opacity-0 group-hover:opacity-100 hover:scale-110"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>

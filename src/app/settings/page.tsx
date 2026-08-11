@@ -3,6 +3,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { SectionTitle } from '@/components/ui/SectionTitle';
+import { ToastContainer } from '@/components/ui/Toast';
+import { useToast } from '@/hooks/useToast';
 import {
   User,
   Shield,
@@ -48,6 +50,7 @@ interface SavedLink {
 }
 
 export default function SettingsPage() {
+  const { toasts, toastSuccess, toastError, toastInfo, removeToast } = useToast();
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [savedLinks, setSavedLinks] = useState<SavedLink[]>([]);
@@ -140,14 +143,13 @@ export default function SettingsPage() {
       if (res.ok && data.success) {
         setNewTitle('');
         setNewMegaUrl('');
-        setAddSuccessMsg('Folder link saved successfully!');
-        setTimeout(() => setAddSuccessMsg(''), 3000);
+        toastSuccess('Folder Link Saved!', `Saved link for "${newTitle}".`);
         await loadLinks();
       } else {
-        alert(data.error || 'Failed to add folder link');
+        toastError('Failed to Save', data.error || 'Failed to add folder link');
       }
     } catch (err) {
-      alert('Error adding folder link');
+      toastError('Error', 'Error adding folder link');
     } finally {
       setIsAdding(false);
     }
@@ -177,7 +179,7 @@ export default function SettingsPage() {
       }
 
       if (itemsToImport.length === 0) {
-        alert('No valid MEGA folder links found. Make sure links contain "mega.nz/folder/"');
+        toastError('Invalid Links', 'No valid MEGA folder links found. Make sure links contain "mega.nz/folder/"');
         return;
       }
 
@@ -191,14 +193,13 @@ export default function SettingsPage() {
       if (res.ok && data.success) {
         setBulkText('');
         setShowBulkInput(false);
-        setAddSuccessMsg(`Successfully imported ${data.restoredCount} links!`);
-        setTimeout(() => setAddSuccessMsg(''), 3000);
+        toastSuccess('Bulk Import Complete!', `Successfully imported ${data.restoredCount} links.`);
         await loadLinks();
       } else {
-        alert(data.error || 'Failed to import bulk links');
+        toastError('Import Failed', data.error || 'Failed to import bulk links');
       }
     } catch (err) {
-      alert('Error bulk adding links');
+      toastError('Error', 'Error bulk adding links');
     } finally {
       setIsAdding(false);
     }
@@ -214,8 +215,9 @@ export default function SettingsPage() {
       const updated = savedLinks.filter((item) => item.id !== id && item.megaUrl !== megaUrl);
       setSavedLinks(updated);
       localStorage.setItem('megavault_saved_links', JSON.stringify(updated));
+      toastInfo('Link Removed', 'Saved folder link removed.');
     } catch (err) {
-      alert('Error removing link');
+      toastError('Error removing link');
     }
   };
 
@@ -231,12 +233,12 @@ export default function SettingsPage() {
       const data = await res.json();
       if (res.ok && data.success) {
         localStorage.setItem('megavault_saved_links', JSON.stringify(savedLinks));
-        alert(`Successfully synced ${data.restoredCount || savedLinks.length} folder links to database!`);
+        toastSuccess('Database Synced!', `Synced ${data.restoredCount || savedLinks.length} folder links to local database.`);
       } else {
-        alert(data.error || 'Failed to sync links');
+        toastError('Sync Failed', data.error || 'Failed to sync links');
       }
     } catch (err) {
-      alert('Error syncing links');
+      toastError('Error', 'Error syncing links');
     } finally {
       setIsSyncing(false);
     }
@@ -254,11 +256,12 @@ export default function SettingsPage() {
         a.download = `megavault-albums-backup-${new Date().toISOString().split('T')[0]}.json`;
         a.click();
         URL.revokeObjectURL(url);
+        toastSuccess('Exported Backup!', 'Downloaded `.json` backup file.');
       } else {
-        alert('Failed to export backup');
+        toastError('Failed to export backup');
       }
     } catch (err) {
-      alert('Error exporting backup');
+      toastError('Error exporting backup');
     }
   };
 
@@ -279,13 +282,13 @@ export default function SettingsPage() {
 
       const data = await res.json();
       if (res.ok && data.success) {
-        alert(data.message || 'Backup restored successfully!');
+        toastSuccess('Backup Restored!', data.message || 'Backup restored successfully!');
         window.location.reload();
       } else {
-        alert(data.error || 'Failed to restore backup');
+        toastError('Restore Failed', data.error || 'Failed to restore backup');
       }
     } catch (err) {
-      alert('Invalid backup JSON file');
+      toastError('Invalid File', 'Invalid backup JSON file');
     } finally {
       setIsImporting(false);
     }
@@ -745,6 +748,9 @@ export default function SettingsPage() {
           </div>
         </div>
       </div>
+
+      {/* Interactive Toast Notifications */}
+      <ToastContainer toasts={toasts} onDismiss={removeToast} />
     </PageContainer>
   );
 }

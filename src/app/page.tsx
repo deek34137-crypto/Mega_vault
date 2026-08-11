@@ -1,11 +1,13 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { AlbumCard } from '@/components/gallery/AlbumCard';
+import { ToastContainer } from '@/components/ui/Toast';
+import { useToast } from '@/hooks/useToast';
 import { Album } from '@/types';
-import { FolderPlus, Sparkles, X, Link as LinkIcon, HardDrive, PlayCircle, Folder, ChevronRight, Video, Image as ImageIcon, Download, Upload, Search } from 'lucide-react';
+import { FolderPlus, Sparkles, X, Link as LinkIcon, HardDrive, PlayCircle, Folder, ChevronRight, Video, Image as ImageIcon, Download, Upload, Search, LayoutGrid, List } from 'lucide-react';
 
 interface DisplayFolder {
   albumId: string;
@@ -23,10 +25,13 @@ let cachedAlbums: Album[] = [];
 let cachedDisplayFolders: DisplayFolder[] = [];
 
 export default function HomePage() {
+  const { toasts, toastSuccess, toastError, toastInfo, removeToast } = useToast();
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [albums, setAlbumsState] = useState<Album[]>(cachedAlbums);
   const [displayFolders, setDisplayFoldersState] = useState<DisplayFolder[]>(cachedDisplayFolders);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'name' | 'items'>('newest');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [isLoading, setIsLoading] = useState(cachedDisplayFolders.length === 0);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [newTitle, setNewTitle] = useState('');
@@ -148,6 +153,19 @@ export default function HomePage() {
     loadData();
   }, [loadData]);
 
+  // Global Keyboard Shortcut for Search (Press '/' or 'Ctrl+K')
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return;
+      if (e.key === '/' || ((e.metaKey || e.ctrlKey) && e.key === 'k')) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleRestoreFromLocalCache = async () => {
@@ -166,12 +184,13 @@ export default function HomePage() {
       const data = await res.json();
       if (res.ok && data.success) {
         setHasLocalBackup(false);
+        toastSuccess('Restored Saved Folders!', `Successfully restored ${savedLocalItems.length} folders from browser cache.`);
         await loadData();
       } else {
-        alert(data.error || 'Failed to restore folders');
+        toastError('Restoration Failed', data.error || 'Failed to restore folders');
       }
     } catch (err) {
-      alert('Error restoring folders from browser database');
+      toastError('Restoration Error', 'Error restoring folders from browser database');
     } finally {
       setIsRestoringLocal(false);
     }
@@ -200,12 +219,13 @@ export default function HomePage() {
         setNewDescription('');
         setNewMegaUrl('');
         setIsAddModalOpen(false);
+        toastSuccess('MEGA Album Linked!', `Successfully indexed "${newTitle}".`);
         loadData();
       } else {
-        alert(data.error || 'Failed to add album');
+        toastError('Failed to Link Album', data.error || 'Failed to add album');
       }
     } catch (err) {
-      alert('An error occurred while creating the album');
+      toastError('Error', 'An error occurred while creating the album');
     } finally {
       setIsSubmitting(false);
     }
@@ -215,12 +235,13 @@ export default function HomePage() {
     try {
       const res = await fetch(`/api/albums/${id}`, { method: 'DELETE' });
       if (res.ok) {
+        toastInfo('Album Removed', 'Album link was successfully removed.');
         loadData();
       } else {
-        alert('Failed to remove album');
+        toastError('Failed to remove album');
       }
     } catch (err) {
-      alert('Error removing album');
+      toastError('Error removing album');
     }
   };
 
@@ -228,6 +249,7 @@ export default function HomePage() {
     setNewTitle('Family Vacation Demo 2026');
     setNewDescription('Indexed photos & videos from sample MEGA folder');
     setNewMegaUrl('https://mega.nz/folder/example#demo-key-2026');
+    toastInfo('Demo Details Loaded', 'Sample MEGA folder link filled in.');
   };
 
   const handleExportBackup = async () => {
@@ -242,11 +264,12 @@ export default function HomePage() {
         a.download = `megavault-albums-backup-${new Date().toISOString().split('T')[0]}.json`;
         a.click();
         URL.revokeObjectURL(url);
+        toastSuccess('Backup Exported!', 'JSON backup downloaded to your device.');
       } else {
-        alert('Failed to export backup');
+        toastError('Failed to export backup');
       }
     } catch (err) {
-      alert('Error exporting backup');
+      toastError('Error exporting backup');
     }
   };
 
@@ -266,13 +289,13 @@ export default function HomePage() {
 
       const data = await res.json();
       if (res.ok && data.success) {
-        alert(data.message || 'Backup restored successfully!');
+        toastSuccess('Backup Restored!', data.message || 'Albums imported successfully.');
         loadData();
       } else {
-        alert(data.error || 'Failed to restore backup');
+        toastError('Import Failed', data.error || 'Failed to restore backup');
       }
     } catch (err) {
-      alert('Invalid backup JSON file');
+      toastError('Invalid File', 'Invalid backup JSON file');
     }
   };
 
@@ -370,19 +393,24 @@ export default function HomePage() {
             <div className="relative flex-1 sm:w-64">
               <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
+                ref={searchInputRef}
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search folders..."
-                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-8 pr-3 py-1.5 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+                className="w-full bg-zinc-900/80 border border-zinc-800 rounded-xl pl-8 pr-12 py-1.5 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 transition-all"
               />
-              {searchQuery && (
+              {searchQuery ? (
                 <button
                   onClick={() => setSearchQuery('')}
                   className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
+              ) : (
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 px-1.5 py-0.5 rounded bg-zinc-800 text-[10px] font-mono text-zinc-400 border border-zinc-700 pointer-events-none">
+                  /
+                </span>
               )}
             </div>
 
@@ -390,13 +418,35 @@ export default function HomePage() {
             <select
               value={sortBy}
               onChange={(e: any) => setSortBy(e.target.value)}
-              className="bg-zinc-900 border border-zinc-800 rounded-xl px-2.5 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-blue-500 cursor-pointer"
+              className="bg-zinc-900/80 border border-zinc-800 rounded-xl px-2.5 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-blue-500 cursor-pointer"
             >
               <option value="newest">Newest First</option>
               <option value="oldest">Oldest First</option>
               <option value="name">Name (A-Z)</option>
               <option value="items">Most Items</option>
             </select>
+
+            {/* View Mode Toggle */}
+            <div className="flex items-center bg-zinc-900/80 p-0.5 rounded-xl border border-zinc-800">
+              <button
+                onClick={() => setViewMode('grid')}
+                title="Grid View"
+                className={`p-1.5 rounded-lg transition-colors ${
+                  viewMode === 'grid' ? 'bg-blue-600/30 text-blue-400 border border-blue-500/40' : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => setViewMode('list')}
+                title="Detailed List View"
+                className={`p-1.5 rounded-lg transition-colors ${
+                  viewMode === 'list' ? 'bg-blue-600/30 text-blue-400 border border-blue-500/40' : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                <List className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -451,14 +501,20 @@ export default function HomePage() {
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-5">
+          <div
+            className={
+              viewMode === 'grid'
+                ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-5'
+                : 'flex flex-col space-y-3'
+            }
+          >
             {filteredFolders.map((folder) => (
               <Link
                 key={`${folder.albumId}::${folder.subfolderPath || '__root__'}`}
                 href={`/albums/${folder.albumId}${folder.subfolderPath ? `?folder=${encodeURIComponent(folder.subfolderPath)}` : ''}`}
                 className="group"
               >
-                <div className="glass-panel glass-panel-hover p-4 sm:p-6 rounded-2xl sm:rounded-3xl border border-zinc-800/80 bg-zinc-950/60 flex items-start justify-between gap-3 sm:gap-4 transition-all duration-300 hover:border-blue-500/40 relative overflow-hidden">
+                <div className="glass-panel glass-panel-hover p-3.5 sm:p-5 rounded-2xl sm:rounded-3xl border border-zinc-800/80 bg-zinc-950/60 flex items-center justify-between gap-3 sm:gap-4 transition-all duration-300 hover:border-blue-500/40 relative overflow-hidden">
                   {/* Dynamic Album Cover Background if available */}
                   {folder.coverImageUrl && (
                     <div className="absolute inset-0 z-0 opacity-15 group-hover:opacity-25 transition-opacity pointer-events-none">
@@ -470,7 +526,7 @@ export default function HomePage() {
                     </div>
                   )}
 
-                  <div className="flex items-start space-x-3 sm:space-x-4 relative z-10">
+                  <div className="flex items-center space-x-3 sm:space-x-4 relative z-10 min-w-0">
                     {folder.coverImageUrl ? (
                       <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl overflow-hidden border border-blue-500/40 flex-shrink-0 group-hover:scale-105 transition-transform bg-zinc-900">
                         <img src={folder.coverImageUrl} alt="" className="w-full h-full object-cover" />
@@ -481,18 +537,18 @@ export default function HomePage() {
                       </div>
                     )}
 
-                    <div>
-                      <h3 className="text-sm sm:text-base font-bold text-white group-hover:text-blue-400 transition-colors line-clamp-1">
+                    <div className="min-w-0">
+                      <h3 className="text-sm sm:text-base font-bold text-white group-hover:text-blue-400 transition-colors truncate">
                         {folder.folderName}
                       </h3>
-                      <p className="text-[11px] sm:text-xs text-zinc-400 mt-1 flex items-center gap-1.5 sm:gap-2 font-medium">
+                      <p className="text-[11px] sm:text-xs text-zinc-400 mt-0.5 flex flex-wrap items-center gap-1.5 font-medium">
                         <span>
                           {folder.itemCount === 0 && (folder.subfolderCount || 0) > 0
                             ? `${folder.subfolderCount} ${folder.subfolderCount === 1 ? 'Subfolder' : 'Subfolders'}`
                             : `${folder.itemCount} media items`}
                         </span>
                         {folder.albumTitle !== folder.folderName && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 truncate max-w-[120px]">
+                          <span className="text-[10px] px-1.5 py-0.2 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 truncate max-w-[100px] sm:max-w-[140px]">
                             {folder.albumTitle}
                           </span>
                         )}
@@ -512,8 +568,8 @@ export default function HomePage() {
 
       {/* New Album Modal */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md">
-          <div className="glass-panel w-full max-w-lg rounded-3xl p-6 border border-zinc-800 shadow-2xl relative">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
+          <div className="glass-panel w-full max-w-lg rounded-2xl sm:rounded-3xl p-5 sm:p-6 border border-zinc-800 shadow-2xl relative my-auto max-h-[90vh] overflow-y-auto">
             <button
               onClick={() => setIsAddModalOpen(false)}
               className="absolute top-4 right-4 p-2 rounded-full text-zinc-400 hover:text-white hover:bg-zinc-800"
@@ -607,6 +663,9 @@ export default function HomePage() {
           </div>
         </div>
       )}
+
+      {/* Interactive Toast Notifications */}
+      <ToastContainer toasts={toasts} onDismiss={removeToast} />
     </PageContainer>
   );
 }

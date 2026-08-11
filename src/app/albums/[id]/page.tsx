@@ -555,27 +555,27 @@ function AlbumContent() {
 
       {/* Sticky Bottom Multi-Select Batch Action Bar */}
       {isSelectMode && (
-        <div className="sticky top-4 z-40 mb-6 p-3.5 rounded-2xl glass-panel border border-blue-500/40 bg-zinc-950/90 backdrop-blur-xl flex flex-wrap items-center justify-between gap-3 shadow-2xl animate-fadeIn">
-          <div className="flex items-center space-x-3">
-            <span className="text-xs font-bold text-white font-mono bg-blue-600 px-2.5 py-1 rounded-lg">
+        <div className="sticky top-4 z-40 mb-6 p-3 sm:p-3.5 rounded-2xl glass-panel border border-blue-500/40 bg-zinc-950/90 backdrop-blur-xl flex flex-wrap items-center justify-between gap-2.5 sm:gap-3 shadow-2xl animate-fadeIn">
+          <div className="flex items-center space-x-2.5 sm:space-x-3">
+            <span className="text-[11px] sm:text-xs font-bold text-white font-mono bg-blue-600 px-2 sm:px-2.5 py-1 rounded-lg">
               {selectedIds.size} Selected
             </span>
             <button
               onClick={selectedIds.size === filteredMedia.length ? handleDeselectAll : handleSelectAll}
-              className="text-xs text-zinc-300 hover:text-white font-medium"
+              className="text-[11px] sm:text-xs text-zinc-300 hover:text-white font-medium"
             >
               {selectedIds.size === filteredMedia.length ? 'Deselect All' : `Select All (${filteredMedia.length})`}
             </button>
           </div>
 
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-1.5 sm:space-x-2 flex-wrap gap-y-1.5">
             <button
               onClick={handleBatchCopyLinks}
               disabled={selectedIds.size === 0}
-              className="px-3.5 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-zinc-200 text-xs font-semibold flex items-center gap-1.5 transition-all border border-zinc-700"
+              className="px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-zinc-200 text-[11px] sm:text-xs font-semibold flex items-center gap-1 sm:gap-1.5 transition-all border border-zinc-700"
             >
               <Copy className="w-3.5 h-3.5" />
-              <span>Copy Stream Links</span>
+              <span>Copy Links</span>
             </button>
 
             <button
@@ -590,19 +590,19 @@ function AlbumContent() {
                 document.body.removeChild(link);
               }}
               disabled={selectedIds.size === 0}
-              className="px-4 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md shadow-amber-600/20"
+              className="px-3 sm:px-4 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-white text-[11px] sm:text-xs font-semibold flex items-center gap-1 sm:gap-1.5 transition-all shadow-md shadow-amber-600/20"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>Stream ZIP Selected ({selectedIds.size})</span>
+              <span>ZIP ({selectedIds.size})</span>
             </button>
 
             <button
               onClick={handleBatchDownload}
               disabled={selectedIds.size === 0}
-              className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md shadow-emerald-600/20"
+              className="px-3 sm:px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-[11px] sm:text-xs font-semibold flex items-center gap-1 sm:gap-1.5 transition-all shadow-md shadow-emerald-600/20"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>Direct Download ({selectedIds.size})</span>
+              <span>Download ({selectedIds.size})</span>
             </button>
           </div>
         </div>
