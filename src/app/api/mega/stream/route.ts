@@ -129,27 +129,34 @@ export async function GET(request: Request) {
     // Handle HTTP Range Requests for smooth video seeking & HTML5 playback
     if (range && fileSize > 0) {
       const parts = range.replace(/bytes=/, '').split('-');
-      const start = parseInt(parts[0], 10);
-      let end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      const rawStart = parseInt(parts[0], 10) || 0;
 
-      // Smart Chunk Allocation:
-      // 1. Files <= 16MB: Send full file in 1 response (0 buffer).
-      // 2. Remaining bytes <= 16MB: Send remaining content.
-      // 3. Files > 16MB: 4MB initial chunk for fast start (<150ms), 16MB for sustained seeking.
-      if (fileSize <= SMALL_FILE_MAX_SIZE || fileSize - start <= SUSTAINED_CHUNK_LARGE) {
-        end = fileSize - 1;
+      // 1. Align start byte to 16-byte boundary for AES-CTR decryption compatibility
+      const start = Math.floor(rawStart / 16) * 16;
+
+      let end: number;
+      if (parts[1] && parts[1].trim() !== '') {
+        // Browser explicitly requested a target end range (e.g. MP4 moov atom / MKV index seek)
+        const requestedEnd = parseInt(parts[1], 10);
+        end = Math.min(requestedEnd, fileSize - 1);
       } else {
-        const maxChunk = start === 0 ? INITIAL_CHUNK_LARGE : SUSTAINED_CHUNK_LARGE;
-        if (end - start + 1 > maxChunk) {
+        // Unbounded range request (e.g. bytes=250000000-)
+        // For large files (>16MB), stream in sustained 32MB chunks
+        const SUSTAINED_CHUNK = 32 * 1024 * 1024;
+        if (fileSize <= SMALL_FILE_MAX_SIZE || fileSize - start <= SUSTAINED_CHUNK) {
+          end = fileSize - 1;
+        } else {
+          const maxChunk = start === 0 ? INITIAL_CHUNK_LARGE : SUSTAINED_CHUNK;
           end = Math.min(start + maxChunk - 1, fileSize - 1);
         }
       }
 
+      if (end < start) end = Math.min(start + 1024 * 1024, fileSize - 1);
       const chunkSize = end - start + 1;
       const videoCacheKey = `${album.id}_${handle}_${start}_${end}`;
 
       // FAST PATH: Initial 4MB video chunk served in 1ms from RAM cache!
-      if (start === 0) {
+      if (start === 0 && (!parts[1] || parseInt(parts[1], 10) >= INITIAL_CHUNK_LARGE)) {
         const cachedChunk = videoChunkCache.get(videoCacheKey);
         if (cachedChunk) {
           return new Response(cachedChunk.buffer as any, {
@@ -199,6 +206,9 @@ export async function GET(request: Request) {
       }
 
       const nodeStream = targetFile.download({ start, end });
+      nodeStream.on('error', (err: any) => {
+        console.error(`[MEGA Stream Node Exception for ${fileName} (${start}-${end})]:`, err);
+      });
       const webStream = Readable.toWeb(nodeStream);
 
       return new Response(webStream as any, {
