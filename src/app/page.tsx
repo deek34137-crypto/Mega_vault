@@ -9,7 +9,7 @@ import { VideoPlayer } from '@/components/viewer/VideoPlayer';
 import { Pagination } from '@/components/ui/Pagination';
 import { ToastContainer } from '@/components/ui/Toast';
 import { useToast } from '@/hooks/useToast';
-import { Album, MediaItem, FilterMediaType } from '@/types';
+import { Album, MediaItem } from '@/types';
 import {
   FolderPlus,
   Sparkles,
@@ -29,12 +29,7 @@ import {
   CheckSquare,
   Copy,
   Check,
-  Play,
-  Layers,
-  Film,
   RefreshCw,
-  Loader2,
-  Trash2,
 } from 'lucide-react';
 import { formatBytes } from '@/lib/utils/cn';
 
@@ -46,7 +41,7 @@ interface DisplayFolder {
   itemCount: number;
   imageCount?: number;
   videoCount?: number;
-  subfolderCount?: number;
+  subfolderCount: number;
   megaUrl: string;
   createdAt: string;
   coverImageUrl?: string;
@@ -85,14 +80,13 @@ export default function HomePage() {
   const [currentPage, setCurrentPage] = useState(1);
 
   // Loading & Modal States
-  const [isLoading, setIsLoading] = useState(cachedDisplayFolders.length === 0 && cachedVaultMedia.length === 0);
+  const [isLoading, setIsLoading] = useState(cachedDisplayFolders.length === 0);
   const [isLoadingMedia, setIsLoadingMedia] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newDescription, setNewDescription] = useState('');
   const [newMegaUrl, setNewMegaUrl] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isZipping, setIsZipping] = useState(false);
 
   // Multi-Select & Batch Actions
   const [isSelectMode, setIsSelectMode] = useState(false);
@@ -134,7 +128,7 @@ export default function HomePage() {
     }
   };
 
-  // Load Albums & Folders
+  // Load Main Folders (Albums) with instant 0ms rendering
   const loadAlbumsData = useCallback(async () => {
     try {
       if (cachedDisplayFolders.length === 0) {
@@ -171,9 +165,12 @@ export default function HomePage() {
         setLocalBackupCount(savedLocalItems.length);
       }
 
-      // Build instant folder & subfolder hierarchy
-      const folderList: DisplayFolder[] = [];
-      for (const alb of loadedAlbums) {
+      // Build main folder cards (each album is a main folder)
+      let totalVaultImages = 0;
+      let totalVaultVideos = 0;
+      let totalVaultMediaCount = 0;
+
+      const folderList: DisplayFolder[] = loadedAlbums.map((alb) => {
         const coverUrl =
           (alb as any).cover_image_url ||
           (alb as any).coverImageUrl ||
@@ -181,41 +178,39 @@ export default function HomePage() {
           undefined;
         const subfolders = (alb as any).subfolders || [];
         const mainSubCount = alb.subfolderCount ?? subfolders.length;
+        const imgCount = alb.mediaCount?.images ?? 0;
+        const vidCount = alb.mediaCount?.videos ?? 0;
+        const totCount = alb.mediaCount?.total ?? (imgCount + vidCount);
 
-        if (subfolders.length > 0) {
-          for (const sub of subfolders) {
-            folderList.push({
-              albumId: alb.id,
-              albumTitle: alb.title,
-              folderName: sub.name,
-              subfolderPath: sub.path,
-              itemCount: sub.itemCount || 0,
-              imageCount: sub.imageCount || 0,
-              videoCount: sub.videoCount || 0,
-              subfolderCount: sub.subfolderCount || 0,
-              megaUrl: alb.megaUrl || '',
-              createdAt: alb.createdAt,
-              coverImageUrl: coverUrl,
-            });
-          }
-        } else {
-          folderList.push({
-            albumId: alb.id,
-            albumTitle: alb.title,
-            folderName: alb.title,
-            subfolderPath: '',
-            itemCount: alb.mediaCount?.total ?? 0,
-            imageCount: alb.mediaCount?.images ?? 0,
-            videoCount: alb.mediaCount?.videos ?? 0,
-            subfolderCount: mainSubCount,
-            megaUrl: alb.megaUrl || '',
-            createdAt: alb.createdAt,
-            coverImageUrl: coverUrl,
-          });
-        }
-      }
+        totalVaultImages += imgCount;
+        totalVaultVideos += vidCount;
+        totalVaultMediaCount += totCount;
+
+        return {
+          albumId: alb.id,
+          albumTitle: alb.title,
+          folderName: alb.title,
+          subfolderPath: '',
+          itemCount: totCount,
+          imageCount: imgCount,
+          videoCount: vidCount,
+          subfolderCount: mainSubCount,
+          megaUrl: alb.megaUrl || '',
+          createdAt: alb.createdAt,
+          coverImageUrl: coverUrl,
+        };
+      });
 
       setDisplayFolders(folderList);
+
+      // Set baseline stats from albums response immediately without extra network call
+      setVaultStats({
+        totalCount: totalVaultMediaCount,
+        imagesCount: totalVaultImages,
+        videosCount: totalVaultVideos,
+        albumsCount: loadedAlbums.length,
+        foldersCount: folderList.length,
+      });
     } catch (err) {
       console.error('Failed to load albums:', err);
     } finally {
@@ -223,7 +218,7 @@ export default function HomePage() {
     }
   }, []);
 
-  // Load Vault-Wide Recursive Media (All Videos / All Photos across all folders)
+  // Lazy-load Vault-Wide Media ONLY when user enters 'all', 'images', or 'videos' tabs
   const loadVaultMediaData = useCallback(async (refresh = false) => {
     try {
       if (cachedVaultMedia.length === 0 || refresh) {
@@ -257,10 +252,17 @@ export default function HomePage() {
     }
   }, []);
 
+  // Load albums on mount
   useEffect(() => {
     loadAlbumsData();
-    loadVaultMediaData();
-  }, [loadAlbumsData, loadVaultMediaData]);
+  }, [loadAlbumsData]);
+
+  // Load media lazily when tab switches away from 'folders'
+  useEffect(() => {
+    if (activeTab !== 'folders' && vaultMedia.length === 0) {
+      loadVaultMediaData();
+    }
+  }, [activeTab, vaultMedia.length, loadVaultMediaData]);
 
   // Global Keyboard Shortcut for Search ('/' or 'Ctrl+K')
   useEffect(() => {
@@ -300,7 +302,9 @@ export default function HomePage() {
         setHasLocalBackup(false);
         toastSuccess('Restored Saved Folders!', `Successfully restored ${savedLocalItems.length} folders.`);
         await loadAlbumsData();
-        await loadVaultMediaData(true);
+        if (activeTab !== 'folders') {
+          await loadVaultMediaData(true);
+        }
       } else {
         toastError('Restoration Failed', data.error || 'Failed to restore folders');
       }
@@ -336,7 +340,9 @@ export default function HomePage() {
         setIsAddModalOpen(false);
         toastSuccess('MEGA Album Linked!', `Successfully indexed "${newTitle}".`);
         loadAlbumsData();
-        loadVaultMediaData(true);
+        if (activeTab !== 'folders') {
+          loadVaultMediaData(true);
+        }
       } else {
         toastError('Failed to Link Album', data.error || 'Failed to add album');
       }
@@ -386,7 +392,9 @@ export default function HomePage() {
       if (res.ok && data.success) {
         toastSuccess('Backup Restored!', data.message || 'Albums imported successfully.');
         loadAlbumsData();
-        loadVaultMediaData(true);
+        if (activeTab !== 'folders') {
+          loadVaultMediaData(true);
+        }
       } else {
         toastError('Import Failed', data.error || 'Failed to restore backup');
       }
@@ -402,16 +410,12 @@ export default function HomePage() {
     toastInfo('Demo Details Loaded', 'Sample MEGA folder link filled in.');
   };
 
-  // Filtered & Sorted Folders List
+  // Filtered & Sorted Main Folders List
   const filteredFolders = useMemo(() => {
     return displayFolders
       .filter((f) => {
         const q = searchQuery.toLowerCase();
-        return (
-          f.folderName.toLowerCase().includes(q) ||
-          f.albumTitle.toLowerCase().includes(q) ||
-          f.subfolderPath.toLowerCase().includes(q)
-        );
+        return f.folderName.toLowerCase().includes(q) || f.albumTitle.toLowerCase().includes(q);
       })
       .sort((a, b) => {
         if (sortBy === 'name') return a.folderName.localeCompare(b.folderName);
@@ -593,7 +597,10 @@ export default function HomePage() {
           </label>
 
           <button
-            onClick={() => loadVaultMediaData(true)}
+            onClick={() => {
+              loadAlbumsData();
+              if (activeTab !== 'folders') loadVaultMediaData(true);
+            }}
             title="Refresh All Vault Media"
             disabled={isLoadingMedia}
             className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 transition-all text-xs flex items-center gap-1.5"
@@ -613,7 +620,7 @@ export default function HomePage() {
       </div>
 
       {/* Main Homepage Vault Filter Navigation Bar */}
-      <div className="mb-6 p-2 rounded-2xl glass-panel border border-zinc-800/90 bg-zinc-950/80 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 shadow-lg">
+      <div className="mb-6 p-2 rounded-2xl glass-panel border border-zinc-800/90 bg-zinc-950/90 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 shadow-lg">
         {/* Tab Selection Pills */}
         <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 md:pb-0 scrollbar-none">
           {/* Folders Tab */}
@@ -626,7 +633,7 @@ export default function HomePage() {
             }`}
           >
             <Folder className="w-3.5 h-3.5" />
-            <span>Indexed Folders</span>
+            <span>Main Folders</span>
             <span
               className={`px-1.5 py-0.2 rounded-md text-[10px] font-mono ${
                 activeTab === 'folders' ? 'bg-white/20 text-white' : 'bg-zinc-800 text-zinc-400'
@@ -666,7 +673,7 @@ export default function HomePage() {
             }`}
           >
             <ImageIcon className="w-3.5 h-3.5" />
-            <span>Photos</span>
+            <span>All Photos</span>
             <span
               className={`px-1.5 py-0.2 rounded-md text-[10px] font-mono ${
                 activeTab === 'images' ? 'bg-white/20 text-white' : 'bg-zinc-800 text-zinc-400'
@@ -686,7 +693,7 @@ export default function HomePage() {
             }`}
           >
             <Video className="w-3.5 h-3.5" />
-            <span>Videos</span>
+            <span>All Videos</span>
             <span
               className={`px-1.5 py-0.2 rounded-md text-[10px] font-mono ${
                 activeTab === 'videos' ? 'bg-white/20 text-white' : 'bg-zinc-800 text-zinc-400'
@@ -707,8 +714,8 @@ export default function HomePage() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={activeTab === 'folders' ? 'Search folders...' : 'Search media & folders...'}
-              className="w-full bg-zinc-900/90 border border-zinc-800 rounded-xl pl-8 pr-10 py-1.5 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+              placeholder={activeTab === 'folders' ? 'Search main folders...' : 'Search media & folders...'}
+              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-8 pr-10 py-1.5 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-blue-500"
             />
             {searchQuery ? (
               <button
@@ -728,7 +735,7 @@ export default function HomePage() {
           <select
             value={sortBy}
             onChange={(e: any) => setSortBy(e.target.value)}
-            className="bg-zinc-900/90 border border-zinc-800 rounded-xl px-2.5 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-blue-500 cursor-pointer"
+            className="bg-zinc-900 border border-zinc-800 rounded-xl px-2.5 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-blue-500 cursor-pointer"
           >
             <option value="newest">Newest First</option>
             <option value="oldest">Oldest First</option>
@@ -740,7 +747,7 @@ export default function HomePage() {
             )}
           </select>
 
-          {/* Media View Tools (Select Mode & Slideshow for Media Tabs) */}
+          {/* Media View Tools (Select Mode for Media Tabs) */}
           {activeTab !== 'folders' && (
             <button
               onClick={() => {
@@ -759,7 +766,7 @@ export default function HomePage() {
           )}
 
           {/* View Mode Toggle */}
-          <div className="flex items-center bg-zinc-900/90 p-0.5 rounded-xl border border-zinc-800">
+          <div className="flex items-center bg-zinc-900 p-0.5 rounded-xl border border-zinc-800">
             <button
               onClick={() => setViewMode('grid')}
               title="Grid View"
@@ -836,14 +843,14 @@ export default function HomePage() {
       )}
 
       {/* ========================================================================= */}
-      {/* 1. FOLDERS TAB CONTENT (Displays Folder cards with Subfolder/Media rules) */}
+      {/* 1. MAIN FOLDERS VIEW (Shows Main Folder Cards with Subfolder Numbering)   */}
       {/* ========================================================================= */}
       {activeTab === 'folders' && (
         <section className="mb-12">
           {isLoading ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
               {[1, 2, 3].map((i) => (
-                <div key={i} className="h-36 rounded-2xl bg-zinc-900/60 animate-pulse border border-zinc-800" />
+                <div key={i} className="h-32 rounded-2xl bg-zinc-900 animate-pulse border border-zinc-800" />
               ))}
             </div>
           ) : filteredFolders.length === 0 ? (
@@ -852,14 +859,14 @@ export default function HomePage() {
                 <Folder className="w-7 h-7" />
               </div>
               <h3 className="text-lg font-bold text-white mb-1">
-                {searchQuery ? 'No Matching Folders Found' : 'No Folders Displaying Currently'}
+                {searchQuery ? 'No Matching Main Folders Found' : 'No Main Folders in Vault'}
               </h3>
               <p className="text-xs text-zinc-400 mb-6">
                 {searchQuery
-                  ? `No folders matched "${searchQuery}". Try a different keyword.`
+                  ? `No main folders matched "${searchQuery}". Try a different keyword.`
                   : hasLocalBackup
                   ? `Found ${localBackupCount} saved folder links in your browser database!`
-                  : 'Paste a MEGA folder link to index folders and subfolders automatically.'}
+                  : 'Paste a shared MEGA folder link to index and organize folders automatically.'}
               </p>
               {searchQuery ? (
                 <button
@@ -899,36 +906,25 @@ export default function HomePage() {
               }
             >
               {filteredFolders.map((folder) => {
-                const hasSubfolders = (folder.subfolderCount || 0) > 0;
+                const hasSubfolders = folder.subfolderCount > 0;
                 const imgCount = folder.imageCount ?? 0;
                 const vidCount = folder.videoCount ?? 0;
 
                 return (
                   <Link
-                    key={`${folder.albumId}::${folder.subfolderPath || '__root__'}`}
-                    href={`/albums/${folder.albumId}${folder.subfolderPath ? `?folder=${encodeURIComponent(folder.subfolderPath)}` : ''}`}
-                    className="group"
+                    key={folder.albumId}
+                    href={`/albums/${folder.albumId}`}
+                    className="group block"
                   >
-                    <div className="glass-panel glass-panel-hover p-3.5 sm:p-5 rounded-2xl sm:rounded-3xl border border-zinc-800/80 bg-zinc-950/60 flex items-center justify-between gap-3 sm:gap-4 transition-all duration-300 hover:border-blue-500/40 relative overflow-hidden">
-                      {/* Dynamic Background Preview if available */}
-                      {folder.coverImageUrl && (
-                        <div className="absolute inset-0 z-0 opacity-15 group-hover:opacity-25 transition-opacity pointer-events-none">
-                          <img
-                            src={folder.coverImageUrl}
-                            alt={folder.folderName}
-                            className="w-full h-full object-cover blur-[2px]"
-                          />
-                        </div>
-                      )}
-
-                      <div className="flex items-center space-x-3 sm:space-x-4 relative z-10 min-w-0">
+                    <div className="p-4 sm:p-5 rounded-2xl border border-zinc-800 bg-zinc-950 hover:border-blue-500/50 hover:shadow-xl transition-all duration-150 flex items-center justify-between gap-4 relative overflow-hidden">
+                      <div className="flex items-center space-x-3 sm:space-x-4 min-w-0">
                         {folder.coverImageUrl ? (
-                          <div className="w-11 h-11 sm:w-13 sm:h-13 rounded-xl sm:rounded-2xl overflow-hidden border border-blue-500/40 flex-shrink-0 group-hover:scale-105 transition-transform bg-zinc-900">
+                          <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl overflow-hidden border border-blue-500/30 flex-shrink-0 bg-zinc-900 group-hover:scale-105 transition-transform">
                             <img src={folder.coverImageUrl} alt="" className="w-full h-full object-cover" />
                           </div>
                         ) : (
-                          <div className="w-11 h-11 sm:w-13 sm:h-13 rounded-xl sm:rounded-2xl bg-gradient-to-br from-blue-600/20 to-indigo-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400 flex-shrink-0 group-hover:scale-105 transition-transform">
-                            <Folder className="w-5 h-5 sm:w-6 sm:h-6 fill-blue-400/20" />
+                          <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-br from-blue-600/20 to-indigo-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400 flex-shrink-0 group-hover:scale-105 transition-transform">
+                            <Folder className="w-6 h-6 fill-blue-400/20" />
                           </div>
                         )}
 
@@ -937,11 +933,11 @@ export default function HomePage() {
                             {folder.folderName}
                           </h3>
 
-                          {/* SMART NUMBERING LOGIC: Shows Subfolder Numbering First, otherwise shows Images & Videos breakdown */}
-                          <div className="text-[11px] sm:text-xs text-zinc-400 mt-1 flex flex-wrap items-center gap-1.5 font-medium">
+                          {/* EXACT USER RULE: If folder has subfolders, FIRST show subfolder numbering! Otherwise show photos and videos breakdown */}
+                          <div className="text-[11px] sm:text-xs text-zinc-400 mt-1.5 flex flex-wrap items-center gap-1.5 font-medium">
                             {hasSubfolders ? (
-                              <span className="px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/30 text-amber-300 font-bold flex items-center gap-1">
-                                <Folder className="w-3 h-3 text-amber-400" />
+                              <span className="px-2.5 py-0.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold flex items-center gap-1.5 shadow-sm">
+                                <Folder className="w-3.5 h-3.5 text-amber-400 fill-amber-400/20" />
                                 <span>
                                   {folder.subfolderCount}{' '}
                                   {folder.subfolderCount === 1 ? 'Subfolder' : 'Subfolders'}
@@ -949,27 +945,27 @@ export default function HomePage() {
                               </span>
                             ) : (
                               <div className="flex items-center gap-1.5">
-                                <span className="px-1.5 py-0.2 rounded bg-zinc-900 border border-zinc-800 text-blue-300 font-mono text-[10px] flex items-center gap-1">
+                                <span className="px-2 py-0.5 rounded-md bg-zinc-900 border border-zinc-800 text-blue-300 font-mono text-[11px] flex items-center gap-1">
                                   <ImageIcon className="w-3 h-3 text-blue-400" />
                                   <span>{imgCount} Photos</span>
                                 </span>
-                                <span className="px-1.5 py-0.2 rounded bg-zinc-900 border border-zinc-800 text-purple-300 font-mono text-[10px] flex items-center gap-1">
+                                <span className="px-2 py-0.5 rounded-md bg-zinc-900 border border-zinc-800 text-purple-300 font-mono text-[11px] flex items-center gap-1">
                                   <Video className="w-3 h-3 text-purple-400" />
                                   <span>{vidCount} Videos</span>
                                 </span>
                               </div>
                             )}
 
-                            {folder.albumTitle !== folder.folderName && (
-                              <span className="text-[10px] px-1.5 py-0.2 rounded bg-zinc-900 border border-zinc-800 text-zinc-400 truncate max-w-[100px] sm:max-w-[140px]">
-                                {folder.albumTitle}
+                            {hasSubfolders && folder.itemCount > 0 && (
+                              <span className="text-[11px] text-zinc-500 font-mono">
+                                • {folder.itemCount} items total
                               </span>
                             )}
                           </div>
                         </div>
                       </div>
 
-                      <div className="p-1.5 sm:p-2 rounded-full bg-zinc-900 border border-zinc-800 text-zinc-400 group-hover:text-blue-400 group-hover:translate-x-1 transition-all flex-shrink-0 relative z-10">
+                      <div className="p-2 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 group-hover:text-blue-400 group-hover:translate-x-1 transition-all flex-shrink-0">
                         <ChevronRight className="w-4 h-4" />
                       </div>
                     </div>
@@ -989,11 +985,11 @@ export default function HomePage() {
           {isLoadingMedia ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 sm:gap-4">
               {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((i) => (
-                <div key={i} className="aspect-square rounded-2xl bg-zinc-900/60 animate-pulse border border-zinc-800" />
+                <div key={i} className="aspect-square rounded-2xl bg-zinc-900 animate-pulse border border-zinc-800" />
               ))}
             </div>
           ) : filteredMedia.length === 0 ? (
-            <div className="glass-panel p-12 rounded-3xl text-center border border-zinc-800/80 my-4">
+            <div className="glass-panel p-12 rounded-3xl text-center border border-zinc-800 my-4">
               <div className="w-14 h-14 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 mx-auto mb-4">
                 {activeTab === 'videos' ? (
                   <Video className="w-7 h-7 text-purple-400" />
@@ -1007,15 +1003,15 @@ export default function HomePage() {
                 {searchQuery
                   ? 'No Matching Media Files'
                   : activeTab === 'videos'
-                  ? 'No Videos Found in Vault'
+                  ? 'No Videos Found in Any Folder'
                   : activeTab === 'images'
-                  ? 'No Photos Found in Vault'
-                  : 'No Media Files Found'}
+                  ? 'No Photos Found in Any Folder'
+                  : 'No Media Files in Vault'}
               </h3>
               <p className="text-xs text-zinc-400 max-w-md mx-auto mb-6">
                 {searchQuery
-                  ? `No media matched "${searchQuery}". Try a different search term or clear the filter.`
-                  : 'Add a MEGA folder album to index and stream photos & videos automatically.'}
+                  ? `No media matched "${searchQuery}". Try a different search term.`
+                  : 'Add a MEGA folder link on the main page to index and stream photos & videos.'}
               </p>
               {searchQuery ? (
                 <button
