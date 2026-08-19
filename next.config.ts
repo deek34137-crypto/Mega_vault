@@ -1,6 +1,8 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
+  // Remove X-Powered-By header to reduce tech stack fingerprinting
+  poweredByHeader: false,
   serverExternalPackages: ['better-sqlite3'],
   images: {
     remotePatterns: [
@@ -23,9 +25,23 @@ const nextConfig: NextConfig = {
   },
   // Compress all responses
   compress: true,
-  // Aggressive HTTP caching headers for Cloudflare CDN
+  // HTTP headers: CDN caching + security hardening
   async headers() {
     return [
+      {
+        // Security + fingerprint-reduction headers on ALL routes
+        source: '/(.*)',
+        headers: [
+          // Prevent MIME sniffing
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          // Block iframe embedding (clickjacking prevention)
+          { key: 'X-Frame-Options', value: 'DENY' },
+          // Don't send Referer header to external sites — hides your domain in outbound requests
+          { key: 'Referrer-Policy', value: 'no-referrer' },
+          // Lock down browser feature access
+          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), interest-cohort=()' },
+        ],
+      },
       {
         // Cache static JS/CSS/fonts aggressively on Cloudflare edge
         source: '/_next/static/:path*',

@@ -35,7 +35,13 @@ export async function middleware(request: NextRequest) {
   try {
     const secretKey = getSecretKey();
     await jwtVerify(token, secretKey);
-    return NextResponse.next();
+    const response = NextResponse.next();
+    // Strip Next.js / Vercel fingerprint headers to reduce tech-stack exposure
+    response.headers.delete('x-nextjs-prerender');
+    response.headers.delete('x-nextjs-stale-time');
+    response.headers.delete('x-matched-path');
+    response.headers.delete('x-nextjs-cache');
+    return response;
   } catch {
     const loginUrl = new URL('/login', request.url);
     return NextResponse.redirect(loginUrl);

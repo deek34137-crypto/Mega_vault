@@ -15,8 +15,14 @@ export async function GET() {
 
     // Fast resolution from DB + disk snapshot (0ms network delay)
     const albumsWithStats = dbAlbums.map((alb) => {
-      const cacheKey = `mega_media_${alb.id}_${alb.mega_link}_root`;
-      const snapshot = getFolderSnapshot(cacheKey);
+      const rootCacheKey = `mega_media_${alb.id}_${alb.mega_link}_root`;
+      const allCacheKey = `mega_all_media_${alb.id}_${alb.mega_link}`;
+      const rootSnapshot = getFolderSnapshot(rootCacheKey);
+      const allSnapshot: any = getFolderSnapshot(allCacheKey);
+
+      const subfolders = rootSnapshot?.subfolders ?? [];
+      const subfolderCount = allSnapshot?.subfolderCount ?? rootSnapshot?.subfolderCount ?? subfolders.length;
+      const mediaCount = allSnapshot?.mediaCount ?? rootSnapshot?.mediaCount ?? { total: 0, images: 0, videos: 0 };
 
       return {
         id: alb.id,
@@ -26,10 +32,10 @@ export async function GET() {
         createdAt: alb.created_at,
         updatedAt: alb.updated_at ?? alb.created_at,
         status: 'ACTIVE' as const,
-        mediaCount: snapshot?.mediaCount ?? { total: 0, images: 0, videos: 0 },
-        subfolderCount: snapshot?.subfolders?.length ?? 0,
-        subfolders: snapshot?.subfolders ?? [],
-        coverUrl: snapshot?.items?.find((i) => i.mediaType === 'IMAGE')?.streamUrl ?? snapshot?.items[0]?.thumbnailUrl ?? alb.cover_image_url ?? null,
+        mediaCount,
+        subfolderCount,
+        subfolders,
+        coverUrl: rootSnapshot?.items?.find((i) => i.mediaType === 'IMAGE')?.streamUrl ?? rootSnapshot?.items[0]?.thumbnailUrl ?? alb.cover_image_url ?? null,
       };
     });
 

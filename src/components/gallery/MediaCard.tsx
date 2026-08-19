@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Play, Film, Image as ImageIcon, Check, Star } from 'lucide-react';
+import { Play, Film, Image as ImageIcon, Check, Star, Folder } from 'lucide-react';
 import { MediaItem } from '@/types';
 import { formatBytes } from '@/lib/utils/cn';
 
@@ -279,10 +279,23 @@ export const MediaCard: React.FC<MediaCardProps> = ({
               </div>
             )}
 
-            <div className="absolute bottom-2 left-2 right-2 z-10 bg-black/75 backdrop-blur-md p-2 rounded-xl border border-white/10">
+            <div className="absolute bottom-2 left-2 right-2 z-10 bg-black/80 backdrop-blur-md p-2 rounded-xl border border-white/10 flex flex-col gap-1">
               <p className="text-xs font-semibold text-white font-mono truncate leading-snug" title={media.fileName}>
                 {media.fileName}
               </p>
+              {(media.albumTitle || media.folderPath) && (
+                <div
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    window.location.href = `/albums/${media.albumId}${media.folderPath ? `?folder=${encodeURIComponent(media.folderPath)}` : ''}`;
+                  }}
+                  className="inline-flex items-center gap-1 text-[10px] text-blue-300 hover:text-white bg-blue-500/10 hover:bg-blue-500/25 px-1.5 py-0.5 rounded-md border border-blue-500/20 max-w-full transition-colors cursor-pointer"
+                  title={`Open: ${[media.albumTitle, media.folderPath].filter(Boolean).join(' / ')}`}
+                >
+                  <Folder className="w-3 h-3 flex-shrink-0 text-blue-400" />
+                  <span className="truncate">{[media.albumTitle, media.folderPath].filter(Boolean).join(' • ')}</span>
+                </div>
+              )}
             </div>
           </div>
         ) : isVideo ? (
@@ -324,11 +337,24 @@ export const MediaCard: React.FC<MediaCardProps> = ({
               </span>
             </div>
 
-            {/* Bottom filename */}
-            <div className="absolute bottom-2 left-2 right-2 z-10 bg-black/75 backdrop-blur-md p-2 rounded-xl border border-white/10">
+            {/* Bottom filename & origin */}
+            <div className="absolute bottom-2 left-2 right-2 z-10 bg-black/80 backdrop-blur-md p-2 rounded-xl border border-white/10 flex flex-col gap-1">
               <p className="text-xs font-semibold text-white font-mono truncate leading-snug" title={media.fileName}>
                 {media.fileName}
               </p>
+              {(media.albumTitle || media.folderPath) && (
+                <div
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    window.location.href = `/albums/${media.albumId}${media.folderPath ? `?folder=${encodeURIComponent(media.folderPath)}` : ''}`;
+                  }}
+                  className="inline-flex items-center gap-1 text-[10px] text-purple-300 hover:text-white bg-purple-500/10 hover:bg-purple-500/25 px-1.5 py-0.5 rounded-md border border-purple-500/20 max-w-full transition-colors cursor-pointer"
+                  title={`Open: ${[media.albumTitle, media.folderPath].filter(Boolean).join(' / ')}`}
+                >
+                  <Folder className="w-3 h-3 flex-shrink-0 text-purple-400" />
+                  <span className="truncate">{[media.albumTitle, media.folderPath].filter(Boolean).join(' • ')}</span>
+                </div>
+              )}
             </div>
           </div>
         ) : (
@@ -344,10 +370,23 @@ export const MediaCard: React.FC<MediaCardProps> = ({
               </span>
             </div>
 
-            <div className="z-10 bg-black/75 backdrop-blur-md p-2 rounded-xl border border-white/10 mt-auto">
+            <div className="z-10 bg-black/80 backdrop-blur-md p-2 rounded-xl border border-white/10 mt-auto flex flex-col gap-1">
               <p className="text-xs font-semibold text-white font-mono truncate leading-snug" title={media.fileName}>
                 {media.fileName}
               </p>
+              {(media.albumTitle || media.folderPath) && (
+                <div
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    window.location.href = `/albums/${media.albumId}${media.folderPath ? `?folder=${encodeURIComponent(media.folderPath)}` : ''}`;
+                  }}
+                  className="inline-flex items-center gap-1 text-[10px] text-blue-300 hover:text-white bg-blue-500/10 hover:bg-blue-500/25 px-1.5 py-0.5 rounded-md border border-blue-500/20 max-w-full transition-colors cursor-pointer"
+                  title={`Open: ${[media.albumTitle, media.folderPath].filter(Boolean).join(' / ')}`}
+                >
+                  <Folder className="w-3 h-3 flex-shrink-0 text-blue-400" />
+                  <span className="truncate">{[media.albumTitle, media.folderPath].filter(Boolean).join(' • ')}</span>
+                </div>
+              )}
             </div>
           </div>
         )}

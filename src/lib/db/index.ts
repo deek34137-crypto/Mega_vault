@@ -191,6 +191,19 @@ async function ensureTursoSchema(client: Client): Promise<void> {
       created_at TEXT NOT NULL
     );
   `);
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS access_tokens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      token TEXT UNIQUE NOT NULL,
+      bound_ip TEXT,
+      plan_type TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      is_active INTEGER DEFAULT 1,
+      created_at TEXT NOT NULL,
+      payment_type TEXT NOT NULL,
+      telegram_id TEXT
+    );
+  `);
   // Non-destructive migrations & performance indexes
   try {
     await client.execute(`ALTER TABLE albums ADD COLUMN updated_at TEXT;`);
@@ -209,6 +222,9 @@ async function ensureTursoSchema(client: Client): Promise<void> {
   } catch {}
   try {
     await client.execute(`CREATE INDEX IF NOT EXISTS idx_share_links_token ON share_links(token);`);
+  } catch {}
+  try {
+    await client.execute(`CREATE INDEX IF NOT EXISTS idx_access_tokens_token ON access_tokens(token);`);
   } catch {}
   tursoInitialized = true;
 }
@@ -256,10 +272,22 @@ function getLocalDb(): Database.Database {
         expires_at TEXT,
         created_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS access_tokens (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        token TEXT UNIQUE NOT NULL,
+        bound_ip TEXT,
+        plan_type TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        is_active INTEGER DEFAULT 1,
+        created_at TEXT NOT NULL,
+        payment_type TEXT NOT NULL,
+        telegram_id TEXT
+      );
       CREATE INDEX IF NOT EXISTS idx_video_thumbnails_album ON video_thumbnails(album_id);
       CREATE INDEX IF NOT EXISTS idx_favorites_album ON favorites(album_id);
       CREATE INDEX IF NOT EXISTS idx_albums_created_at ON albums(created_at);
       CREATE INDEX IF NOT EXISTS idx_share_links_token ON share_links(token);
+      CREATE INDEX IF NOT EXISTS idx_access_tokens_token ON access_tokens(token);
     `);
 
     try {
@@ -1015,6 +1043,168 @@ export async function getAllShareLinks(): Promise<DbShareLink[]> {
   }
 
   return [];
+}
+
+// ─── ACCESS TOKENS (TELEGRAM PAY-TO-ACCESS) DATABASE HELPERS ───
+
+export interface DbAccessToken {
+  id?: number;
+  token: string;
+  bound_ip?: string | null;
+  plan_type: string;
+  expires_at: string;
+  is_active: number;
+  created_at: string;
+  payment_type: string;
+  telegram_id?: string | null;
+}
+
+export async function createAccessToken(record: {
+  token: string;
+  planType: string;
+  durationDays: number;
+  paymentType: string;
+  telegramId?: string | null;
+}): Promise<DbAccessToken> {
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + record.durationDays * 24 * 60 * 60 * 1000).toISOString();
+  const createdAt = now.toISOString();
+
+  const tokenRecord: DbAccessToken = {
+    token: record.token,
+    bound_ip: null,
+    plan_type: record.planType,
+    expires_at: expiresAt,
+    is_active: 1,
+    created_at: createdAt,
+    payment_type: record.paymentType,
+    telegram_id: record.telegramId || null,
+  };
+
+  const client = getTursoClient();
+  if (client) {
+    try {
+      await ensureTursoSchema(client);
+      await client.execute({
+        sql: `INSERT INTO access_tokens (token, bound_ip, plan_type, expires_at, is_active, created_at, payment_type, telegram_id)
+              VALUES (?, NULL, ?, ?, 1, ?, ?, ?)`,
+        args: [
+          tokenRecord.token,
+          tokenRecord.plan_type,
+          tokenRecord.expires_at,
+          tokenRecord.created_at,
+          tokenRecord.payment_type,
+          tokenRecord.telegram_id ?? null,
+        ],
+      });
+    } catch (e) {
+      console.error('[MegaVault] Turso createAccessToken error:', e);
+    }
+  }
+
+  try {
+    const db = getLocalDb();
+    const stmt = db.prepare(`
+      INSERT INTO access_tokens (token, bound_ip, plan_type, expires_at, is_active, created_at, payment_type, telegram_id)
+      VALUES (?, NULL, ?, ?, 1, ?, ?, ?)
+    `);
+    stmt.run(
+      tokenRecord.token,
+      tokenRecord.plan_type,
+      tokenRecord.expires_at,
+      tokenRecord.created_at,
+      tokenRecord.payment_type,
+      tokenRecord.telegram_id ?? null
+    );
+  } catch (e) {
+    console.error('[MegaVault] Local DB createAccessToken error:', e);
+  }
+
+  return tokenRecord;
+}
+
+export async function getAccessTokenByToken(token: string): Promise<DbAccessToken | undefined> {
+  const client = getTursoClient();
+  if (client) {
+    try {
+      await ensureTursoSchema(client);
+      const res = await client.execute({
+        sql: 'SELECT * FROM access_tokens WHERE token = ?',
+        args: [token],
+      });
+      if (res.rows.length > 0) {
+        const row: any = res.rows[0];
+        return {
+          id: row.id,
+          token: row.token,
+          bound_ip: row.bound_ip,
+          plan_type: row.plan_type,
+          expires_at: row.expires_at,
+          is_active: Number(row.is_active),
+          created_at: row.created_at,
+          payment_type: row.payment_type,
+          telegram_id: row.telegram_id,
+        };
+      }
+    } catch (e) {
+      console.error('[MegaVault] Turso getAccessTokenByToken error:', e);
+    }
+  }
+
+  try {
+    const db = getLocalDb();
+    const stmt = db.prepare('SELECT * FROM access_tokens WHERE token = ?');
+    const row = stmt.get(token) as DbAccessToken | undefined;
+    if (row) return row;
+  } catch (e) {
+    console.error('[MegaVault] Local DB getAccessTokenByToken error:', e);
+  }
+
+  return undefined;
+}
+
+export async function verifyAndConsumeAccessToken(token: string, clientIp: string): Promise<{ success: boolean; error?: string }> {
+  const tokenRecord = await getAccessTokenByToken(token);
+
+  if (!tokenRecord || !tokenRecord.is_active) {
+    return { success: false, error: 'Invalid or revoked access key.' };
+  }
+
+  // Check expiration
+  if (new Date(tokenRecord.expires_at).getTime() < Date.now()) {
+    return { success: false, error: 'Access key has expired.' };
+  }
+
+  // Check IP binding
+  if (tokenRecord.bound_ip) {
+    if (tokenRecord.bound_ip !== clientIp) {
+      return { success: false, error: 'Access key is locked to a different network IP.' };
+    }
+  } else {
+    // First time login — bind to client IP!
+    const client = getTursoClient();
+    if (client) {
+      try {
+        await ensureTursoSchema(client);
+        await client.execute({
+          sql: 'UPDATE access_tokens SET bound_ip = ? WHERE token = ?',
+          args: [clientIp, token],
+        });
+      } catch (e) {
+        console.error('[MegaVault] Turso bindIp error:', e);
+      }
+    }
+
+    try {
+      const db = getLocalDb();
+      const stmt = db.prepare('UPDATE access_tokens SET bound_ip = ? WHERE token = ?');
+      stmt.run(clientIp, token);
+    } catch (e) {
+      console.error('[MegaVault] Local DB bindIp error:', e);
+    }
+  }
+
+  return { success: true };
 }
 
 

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { verifyPassword, createAuthSession, destroyAuthSession, isAuthenticated } from '@/lib/auth';
+import { verifyAndConsumeAccessToken } from '@/lib/db';
 
 interface RateLimitRecord {
   attempts: number;
@@ -29,13 +30,32 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Password is required' }, { status: 400 });
     }
 
-    if (!verifyPassword(password)) {
+    const trimmedPassword = password.trim();
+
+    // 1. First check if it matches Master Admin Password
+    let isValid = verifyPassword(trimmedPassword);
+    let tokenError: string | undefined;
+
+    // 2. If not Master Password, check Telegram Access Token
+    if (!isValid) {
+      const tokenResult = await verifyAndConsumeAccessToken(trimmedPassword, ip);
+      if (tokenResult.success) {
+        isValid = true;
+      } else {
+        tokenError = tokenResult.error;
+      }
+    }
+
+    if (!isValid) {
       if (!record || now > record.resetAt) {
         loginAttempts.set(ip, { attempts: 1, resetAt: now + WINDOW_MS });
       } else {
         record.attempts += 1;
       }
-      return NextResponse.json({ error: 'Incorrect site password' }, { status: 401 });
+      return NextResponse.json(
+        { error: tokenError || 'Incorrect site password or access key' },
+        { status: 401 }
+      );
     }
 
     // Success — reset attempts for IP

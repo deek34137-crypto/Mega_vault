@@ -431,7 +431,13 @@ function AlbumContent() {
                           </h4>
                           {isFavSub && <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />}
                         </div>
-                        <span className="text-[11px] sm:text-xs text-zinc-400">{sub.itemCount} items</span>
+                        <span className="text-[11px] sm:text-xs text-zinc-400">
+                          {(sub as any).subfolderCount && (sub as any).subfolderCount > 0
+                            ? `${(sub as any).subfolderCount} ${(sub as any).subfolderCount === 1 ? 'Subfolder' : 'Subfolders'}`
+                            : (sub as any).imageCount !== undefined && (sub as any).videoCount !== undefined && ((sub as any).imageCount > 0 || (sub as any).videoCount > 0)
+                            ? `${(sub as any).imageCount} Photos • ${(sub as any).videoCount} Videos`
+                            : `${sub.itemCount} items`}
+                        </span>
                       </div>
                     </div>
 

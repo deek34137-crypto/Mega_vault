@@ -6,6 +6,8 @@ export type SupportedVideoFormat = 'MP4' | 'MOV' | 'MKV' | 'WEBM';
 export interface MediaItem {
   id: string;
   albumId: string;
+  albumTitle?: string;
+  folderPath?: string;
   fileHandle: string;
   fileName: string;
   mimeType: string;

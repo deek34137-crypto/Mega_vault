@@ -138,7 +138,7 @@ export const AlbumCard: React.FC<AlbumCardProps> = ({ album, onDelete, onFavorit
             {/* Media Count Pills */}
             <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between text-xs text-zinc-300 font-medium">
               <div className="flex items-center space-x-2">
-                {hasNoDirectMedia && subCount > 0 ? (
+                {subCount > 0 ? (
                   <span className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-amber-500/20 backdrop-blur-md border border-amber-500/30 text-amber-300 text-xs font-bold shadow-md">
                     <Folder className="w-3.5 h-3.5 text-amber-400 fill-amber-400/20" />
                     <span>{subCount} {subCount === 1 ? 'Subfolder' : 'Subfolders'}</span>
@@ -153,12 +153,6 @@ export const AlbumCard: React.FC<AlbumCardProps> = ({ album, onDelete, onFavorit
                       <Video className="w-3 h-3 text-purple-400" />
                       <span>{album.mediaCount?.videos || 0}</span>
                     </span>
-                    {subCount > 0 && (
-                      <span className="flex items-center space-x-1 px-2 py-0.5 rounded-md bg-black/60 backdrop-blur-md border border-white/10 text-amber-300">
-                        <Folder className="w-3 h-3 text-amber-400" />
-                        <span>{subCount}</span>
-                      </span>
-                    )}
                   </>
                 )}
               </div>

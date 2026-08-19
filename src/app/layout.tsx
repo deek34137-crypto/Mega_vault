@@ -10,8 +10,7 @@ export const metadata: Metadata = {
     template: `%s | ${APP_NAME}`,
   },
   description: APP_TAGLINE,
-  keywords: ['MegaVault', 'Media Vault', 'Encrypted Gallery', 'Private Cloud', 'MEGA Index'],
-  authors: [{ name: 'MegaVault Team' }],
+  // No keywords or authors — avoids search engine indexing of app identity
   icons: {
     icon: [
       { url: '/favicon.svg', type: 'image/svg+xml' },
@@ -22,27 +21,11 @@ export const metadata: Metadata = {
     ],
   },
   manifest: '/site.webmanifest',
-  openGraph: {
-    title: `${APP_NAME} - Private Media Vault & Index`,
-    description: APP_TAGLINE,
-    url: 'https://megavault.app',
-    siteName: APP_NAME,
-    images: [
-      {
-        url: '/og-image.jpg',
-        width: 1200,
-        height: 630,
-        alt: 'MegaVault Brand Identity & Vault Showcase',
-      },
-    ],
-    locale: 'en_US',
-    type: 'website',
-  },
-  twitter: {
-    card: 'summary_large_image',
-    title: `${APP_NAME} - Private Personal Media Vault`,
-    description: APP_TAGLINE,
-    images: ['/og-image.jpg'],
+  // No openGraph or twitter card — prevents link preview cards from leaking app info
+  robots: {
+    index: false,
+    follow: false,
+    googleBot: { index: false, follow: false },
   },
 };
 
