@@ -94,6 +94,79 @@ function getVideoTime(duration?: string | null, id?: string): string {
   return '10:00';
 }
 
+function cleanChannelName(nickname?: string | null, url?: string): string {
+  if (!nickname) return 'Channel';
+  let cleaned = nickname.replace(/^\d+[\s:.-]*/, '').trim();
+  if (!cleaned && url) {
+    try {
+      cleaned = new URL(url).hostname.replace(/^www\./, '').split('.')[0];
+      cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+    } catch {
+      cleaned = 'Channel';
+    }
+  }
+  return cleaned || nickname;
+}
+
+function cleanDisplayTitle(title: string): string {
+  if (!title) return 'Video Stream';
+  let t = title.trim();
+  t = t.replace(/^thumbnail\s+(?:for\s+)?/i, '');
+  t = t.replace(/\s+on\s+[a-z0-9.-]+\.[a-z]{2,}(?:,.*)?$/i, '');
+  t = t.replace(/\s+all\s+your\s+.*needs.*$/i, '');
+  return t.trim() || 'Video Stream';
+}
+
+function VideoPoster({ poster, title }: { poster?: string | null; title: string }) {
+  const [hasError, setHasError] = useState(false);
+  const [isVideo, setIsVideo] = useState(() => {
+    if (!poster) return false;
+    const lower = poster.toLowerCase();
+    return lower.includes('.webm') || lower.includes('myspacecat.pictures');
+  });
+
+  if (!poster || hasError) {
+    return (
+      <div className="w-full h-full bg-gradient-to-br from-purple-950/80 via-zinc-900 to-zinc-950 flex items-center justify-center">
+        <Film className="w-7 h-7 text-purple-500/30" />
+      </div>
+    );
+  }
+
+  if (isVideo) {
+    return (
+      <video
+        src={poster}
+        muted
+        autoPlay
+        loop
+        playsInline
+        preload="metadata"
+        className="w-full h-full object-cover object-top pointer-events-none"
+        onError={() => setHasError(true)}
+      />
+    );
+  }
+
+  return (
+    <img
+      src={poster}
+      alt=""
+      aria-label={title}
+      loading="lazy"
+      referrerPolicy="no-referrer"
+      onError={() => {
+        if (poster.includes('myspacecat.pictures') || poster.includes('webm')) {
+          setIsVideo(true);
+        } else {
+          setHasError(true);
+        }
+      }}
+      className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-500"
+    />
+  );
+}
+
 function formatColor(format: string) {
   const f = format.toUpperCase();
   if (f.includes('M3U8') || f.includes('HLS')) return { bg: 'bg-violet-500/20', border: 'border-violet-500/40', text: 'text-violet-300' };
@@ -112,6 +185,8 @@ export default function SavedSitesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState<string | null>(null);
   const [isSitesBarCollapsed, setIsSitesBarCollapsed] = useState(false);
+  const [isUnifiedSearching, setIsUnifiedSearching] = useState(false);
+  const [unifiedSearchResults, setUnifiedSearchResults] = useState<SavedSiteVideo[] | null>(null);
 
   const [activeSectionUrl, setActiveSectionUrl] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -177,19 +252,6 @@ export default function SavedSitesPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  const handleSelectSite = (siteId: string | null) => {
-    setSelectedSiteId(siteId);
-    setActiveSectionUrl(null);
-    setCurrentPage(1);
-    setHasNextPage(true);
-    setSearchQuery('');
-  };
-
-  const currentSite = useMemo(() => {
-    if (!selectedSiteId) return null;
-    return sites.find((s) => s.id === selectedSiteId) || null;
-  }, [sites, selectedSiteId]);
-
   const browseSectionPage = useCallback(
     async (site: SavedSite, sectionUrl: string, page: number, query?: string) => {
       const q = (query || '').trim();
@@ -230,7 +292,7 @@ export default function SavedSitesPage() {
             if (items.length > 0) {
               toastSuccess('Live Search Found', `Extracted ${items.length} streams for "${q}".`);
             } else {
-              toastInfo('No Live Streams', `No streamable videos found on ${site.nickname} for "${q}".`);
+              toastInfo('No Live Streams', `No streamable videos found on ${cleanChannelName(site.nickname)} for "${q}".`);
             }
           }
 
@@ -238,6 +300,21 @@ export default function SavedSitesPage() {
             setSites((prev) =>
               prev.map((s) => (s.id === site.id ? { ...s, sections: data.sections } : s))
             );
+          }
+
+          // Auto-move: if homepage has 0 videos, automatically switch to first valid candidate section
+          if (items.length === 0 && !q && (!sectionUrl || sectionUrl === site.url)) {
+            const candidate = (data.sections || site.sections || []).find(
+              (s: any) =>
+                s.id !== 'home' &&
+                !s.url.includes('#') &&
+                !s.name.toLowerCase().includes('terms') &&
+                !s.name.toLowerCase().includes('comment')
+            );
+            if (candidate && candidate.url !== sectionUrl) {
+              setActiveSectionUrl(candidate.url);
+              browseSectionPage(site, candidate.url, 1);
+            }
           }
         } else {
           toastError('Browse Failed', 'Failed to load page videos.');
@@ -249,6 +326,84 @@ export default function SavedSitesPage() {
       }
     },
     [sectionVideosMap, toastError, toastSuccess, toastInfo]
+  );
+
+  const handleSelectSite = useCallback(
+    (siteId: string | null) => {
+      setSelectedSiteId(siteId);
+      setActiveSectionUrl(null);
+      setCurrentPage(1);
+      setHasNextPage(true);
+      setSearchQuery('');
+      setUnifiedSearchResults(null);
+
+      if (siteId) {
+        const site = sites.find((s) => s.id === siteId);
+        if (site) {
+          const siteVideos = videos.filter((v) => v.site_id === site.id);
+          // If site homepage has 0 videos, automatically move to first candidate video section
+          if (siteVideos.length === 0 || (site.video_count || 0) === 0) {
+            const candidate = (site.sections || []).find(
+              (s) =>
+                s.id !== 'home' &&
+                !s.url.includes('#') &&
+                !s.name.toLowerCase().includes('terms') &&
+                !s.name.toLowerCase().includes('comment')
+            );
+            if (candidate) {
+              setActiveSectionUrl(candidate.url);
+              browseSectionPage(site, candidate.url, 1);
+            }
+          }
+        }
+      }
+    },
+    [sites, videos, browseSectionPage]
+  );
+
+  const currentSite = useMemo(() => {
+    if (!selectedSiteId) return null;
+    return sites.find((s) => s.id === selectedSiteId) || null;
+  }, [sites, selectedSiteId]);
+
+  const handleUnifiedOnlineSearch = useCallback(
+    async (query: string) => {
+      const q = query.trim();
+      if (!q || isUnifiedSearching) return;
+      try {
+        setIsUnifiedSearching(true);
+        const res = await fetch(`/api/sites/all-videos?search=${encodeURIComponent(q)}&online=true`);
+        if (res.ok) {
+          const data = await res.json();
+          const items: SavedSiteVideo[] = (data.videos || []).map((v: any) => ({
+            id: v.id,
+            site_id: v.site_id,
+            title: v.title,
+            stream_url: v.stream_url,
+            proxy_stream_url: v.proxy_stream_url,
+            poster_url: v.poster_url,
+            format: v.format,
+            mime_type: v.mime_type,
+            source: v.source,
+            created_at: v.created_at || new Date().toISOString(),
+            site_nickname: v.site_nickname,
+          }));
+          setUnifiedSearchResults(items);
+          if (items.length > 0) {
+            toastSuccess('Online Search Found', `Discovered ${items.length} streams across channels for "${q}".`);
+          } else {
+            toastInfo('No Online Results', `No stream matches found across channels for "${q}".`);
+          }
+        } else {
+          toastError('Search Failed', 'Failed to search channels online.');
+        }
+      } catch (err: any) {
+        toastError('Search Error', err.message || 'Error searching channels');
+      } finally {
+        setIsUnifiedSearching(false);
+      }
+    },
+    [isUnifiedSearching, toastSuccess, toastInfo, toastError]
   );
 
   const handleSelectSection = (sectionUrl: string | null) => {
@@ -435,6 +590,31 @@ export default function SavedSitesPage() {
     }
 
     // 2. All Channels Selected -> SEARCH ACROSS ALL SITES
+    if (unifiedSearchResults && unifiedSearchResults.length > 0) {
+      const seen = new Set<string>();
+      const combined: SavedSiteVideo[] = [];
+      for (const v of unifiedSearchResults) {
+        const key = v.stream_url || v.id;
+        if (!seen.has(key)) {
+          seen.add(key);
+          combined.push(v);
+        }
+      }
+      for (const v of videos) {
+        const titleMatch = v.title.toLowerCase().includes(q);
+        const nicknameMatch = v.site_nickname ? v.site_nickname.toLowerCase().includes(q) : false;
+        const formatMatch = v.format.toLowerCase().includes(q);
+        if (titleMatch || nicknameMatch || formatMatch) {
+          const key = v.stream_url || v.id;
+          if (!seen.has(key)) {
+            seen.add(key);
+            combined.push(v);
+          }
+        }
+      }
+      return combined;
+    }
+
     if (!q) return videos;
     return videos.filter((v) => {
       const titleMatch = v.title.toLowerCase().includes(q);
@@ -442,7 +622,7 @@ export default function SavedSitesPage() {
       const formatMatch = v.format.toLowerCase().includes(q);
       return titleMatch || nicknameMatch || formatMatch;
     });
-  }, [selectedSiteId, currentSite, activeVideoList, videos, searchQuery, currentPage, sectionVideosMap]);
+  }, [selectedSiteId, currentSite, activeVideoList, videos, searchQuery, currentPage, sectionVideosMap, unifiedSearchResults]);
 
   // Opens RAW direct stream URL in a new tab with NOTHING ELSE for 0 buffering
   const openInPlayerTab = useCallback((vid: SavedSiteVideo) => {
@@ -596,26 +776,36 @@ export default function SavedSitesPage() {
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              if (!e.target.value.trim()) {
+                setUnifiedSearchResults(null);
+              }
+            }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && selectedSiteId && currentSite && searchQuery.trim()) {
-                handleLiveSearchOnSite();
+              if (e.key === 'Enter') {
+                if (selectedSiteId && currentSite && searchQuery.trim()) {
+                  handleLiveSearchOnSite();
+                } else if (!selectedSiteId && searchQuery.trim()) {
+                  handleUnifiedOnlineSearch(searchQuery.trim());
+                }
               }
             }}
             placeholder={
               selectedSiteId && currentSite
-                ? `Search "${currentSite.nickname}" (press Enter for live site search)...`
-                : `Search across all ${totalIndexedCount || videos.length} videos from ${sites.length} channels...`
+                ? `Search "${cleanChannelName(currentSite.nickname, currentSite.url)}" (press Enter for live site search)...`
+                : `Search across all channels (press Enter to search online across sites)...`
             }
-            className="w-full bg-white/[0.04] border border-white/[0.07] rounded-2xl pl-11 pr-32 py-3.5 text-sm text-zinc-200 placeholder-zinc-700 focus:outline-none focus:border-purple-500/50 transition-all backdrop-blur-sm"
+            className="w-full bg-white/[0.04] border border-white/[0.07] rounded-2xl pl-11 pr-36 py-3.5 text-sm text-zinc-200 placeholder-zinc-700 focus:outline-none focus:border-purple-500/50 transition-all backdrop-blur-sm"
           />
 
           <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+            {/* Single Channel Search button */}
             {selectedSiteId && currentSite && searchQuery.trim() && (
               <button
                 onClick={handleLiveSearchOnSite}
                 disabled={isBrowsingPage}
-                title={`Search "${searchQuery}" live on ${currentSite.nickname}`}
+                title={`Search "${searchQuery}" live on ${cleanChannelName(currentSite.nickname, currentSite.url)}`}
                 className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-purple-600/30 transition-all active:scale-95 disabled:opacity-50"
               >
                 {isBrowsingPage ? (
@@ -627,9 +817,29 @@ export default function SavedSitesPage() {
               </button>
             )}
 
+            {/* All Channels Unified Online Search button */}
+            {!selectedSiteId && searchQuery.trim() && (
+              <button
+                onClick={() => handleUnifiedOnlineSearch(searchQuery.trim())}
+                disabled={isUnifiedSearching}
+                title={`Search "${searchQuery}" online across all channels`}
+                className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-purple-600/30 transition-all active:scale-95 disabled:opacity-50"
+              >
+                {isUnifiedSearching ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
+                )}
+                <span className="hidden sm:inline">Search Online</span>
+              </button>
+            )}
+
             {searchQuery && (
               <button
-                onClick={() => setSearchQuery('')}
+                onClick={() => {
+                  setSearchQuery('');
+                  setUnifiedSearchResults(null);
+                }}
                 className="p-1 text-zinc-600 hover:text-zinc-300 transition-colors"
                 title="Clear search"
               >
@@ -644,7 +854,7 @@ export default function SavedSitesPage() {
           <div className="flex items-center justify-between px-4 py-2.5 rounded-2xl bg-purple-950/25 border border-purple-500/25 text-xs">
             <div className="flex items-center gap-2">
               <span className="text-zinc-500">Watching Channel:</span>
-              <span className="font-bold text-purple-300">{currentSite.nickname}</span>
+              <span className="font-bold text-purple-300">{cleanChannelName(currentSite.nickname, currentSite.url)}</span>
               <span className="text-zinc-600 font-mono text-[11px]">({activeVideoList.length} videos)</span>
             </div>
             <button
@@ -688,7 +898,7 @@ export default function SavedSitesPage() {
                   className="flex items-center gap-2 pl-3.5 pr-2 py-2"
                 >
                   <Signal className="w-3 h-3" />
-                  <span>{site.nickname}</span>
+                  <span>{cleanChannelName(site.nickname, site.url)}</span>
                   <span className="font-mono text-[10px] px-1.5 py-0.5 rounded-md bg-black/40 text-zinc-400 group-hover:text-zinc-300">
                     {site.video_count}
                   </span>
@@ -698,7 +908,7 @@ export default function SavedSitesPage() {
                     e.stopPropagation();
                     handleDeleteSite(site.id, site.nickname);
                   }}
-                  title={`Remove ${site.nickname}`}
+                  title={`Remove ${cleanChannelName(site.nickname, site.url)}`}
                   className="pr-2.5 pl-1 py-2 text-zinc-500 hover:text-red-400 transition-colors"
                 >
                   <Trash2 className="w-3 h-3" />
@@ -718,7 +928,7 @@ export default function SavedSitesPage() {
                 <Tv className="w-4 h-4 text-purple-400" />
               </div>
               <div>
-                <h2 className="text-sm font-bold text-white">{currentSite.nickname}</h2>
+                <h2 className="text-sm font-bold text-white">{cleanChannelName(currentSite.nickname, currentSite.url)}</h2>
                 <a
                   href={currentSite.url}
                   target="_blank"
@@ -770,7 +980,7 @@ export default function SavedSitesPage() {
 
             {siteSections && siteSections.length > 0 ? (
               siteSections
-                .filter((s) => s.id !== 'home')
+                .filter((s) => s.id !== 'home' && !s.url.includes('#') && !s.name.toLowerCase().includes('terms') && !/^\d+$/.test(s.name))
                 .map((sec) => (
                   <button
                     key={sec.id}
@@ -817,8 +1027,8 @@ export default function SavedSitesPage() {
       </div>
 
       {/* ─── Video Grid ──────────────────────────────────────────── */}
-      {isLoading || isBrowsingPage ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2.5 sm:gap-3.5">
+      {isLoading || isBrowsingPage || isUnifiedSearching ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2.5 sm:gap-3.5 items-start">
           {Array.from({ length: 12 }).map((_, i) => (
             <div key={i} className={`${cardLayout === 'compact' ? 'aspect-video' : 'aspect-[3/4]'} rounded-2xl bg-white/[0.04] border border-white/[0.05] animate-pulse`} />
           ))}
@@ -831,7 +1041,7 @@ export default function SavedSitesPage() {
           <h3 className="text-base font-bold text-white mb-2">
             {searchQuery
               ? selectedSiteId
-                ? `No matching videos in "${currentSite?.nickname}"`
+                ? `No matching videos in "${cleanChannelName(currentSite?.nickname, currentSite?.url)}"`
                 : `No streams match "${searchQuery}"`
               : sites.length === 0
               ? 'No Channels Yet'
@@ -840,8 +1050,8 @@ export default function SavedSitesPage() {
           <p className="text-xs text-zinc-600 max-w-sm mx-auto mb-6 leading-relaxed">
             {searchQuery
               ? selectedSiteId
-                ? `No videos inside "${currentSite?.nickname}" matched "${searchQuery}". Try searching across All Channels.`
-                : `No stream matched "${searchQuery}". Try a different keyword.`
+                ? `No videos inside "${cleanChannelName(currentSite?.nickname, currentSite?.url)}" matched "${searchQuery}". Press Enter to search this site live or search across All Channels.`
+                : `No streams currently match "${searchQuery}". Click "Search Online" to scan all channels in real time.`
               : sites.length === 0
               ? 'Add your first website channel to start browsing ad-free.'
               : 'Try another section or page, or refresh the channel.'}
@@ -857,12 +1067,24 @@ export default function SavedSitesPage() {
           ) : searchQuery ? (
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
               <button
-                onClick={() => setSearchQuery('')}
+                onClick={() => {
+                  setSearchQuery('');
+                  setUnifiedSearchResults(null);
+                }}
                 className="px-5 py-2.5 rounded-2xl bg-white/[0.06] hover:bg-white/[0.09] border border-white/[0.08] text-white text-xs font-semibold transition-all"
               >
                 Clear Search
               </button>
-              {selectedSiteId && (
+              {!selectedSiteId ? (
+                <button
+                  onClick={() => handleUnifiedOnlineSearch(searchQuery.trim())}
+                  disabled={isUnifiedSearching}
+                  className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold transition-all inline-flex items-center gap-1.5 shadow-lg shadow-purple-600/30"
+                >
+                  {isUnifiedSearching ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-yellow-300" />}
+                  <span>Search Online Across All Channels</span>
+                </button>
+              ) : (
                 <button
                   onClick={() => handleSelectSite(null)}
                   className="px-5 py-2.5 rounded-2xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-all inline-flex items-center gap-1.5 shadow-lg shadow-purple-600/30"
@@ -875,10 +1097,12 @@ export default function SavedSitesPage() {
           ) : null}
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2.5 sm:gap-3.5">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2.5 sm:gap-3.5 items-start">
           {filteredVideos.map((vid) => {
             const poster = vid.poster_url;
             const isHovered = hoveredId === vid.id;
+            const cleanTitle = cleanDisplayTitle(vid.title);
+            const cleanNick = cleanChannelName(vid.site_nickname);
 
             return (
               <div
@@ -886,69 +1110,105 @@ export default function SavedSitesPage() {
                 onMouseEnter={() => setHoveredId(vid.id)}
                 onMouseLeave={() => setHoveredId(null)}
                 onClick={() => openInPlayerTab(vid)}
-                className="group relative rounded-2xl overflow-hidden border border-white/[0.08] bg-zinc-950 cursor-pointer shadow-md hover:border-purple-500/50 hover:shadow-2xl hover:shadow-purple-500/20 transition-all duration-300 w-full max-w-[280px] mx-auto"
+                className="group relative rounded-2xl overflow-hidden border border-white/[0.08] bg-zinc-950 cursor-pointer shadow-md hover:border-purple-500/50 hover:shadow-2xl hover:shadow-purple-500/20 transition-all duration-300 w-full"
                 style={{
-                  transform: isHovered ? 'translateY(-3px) scale(1.015)' : 'none',
+                  transform: isHovered ? 'translateY(-2px)' : 'none',
                 }}
               >
                 {/* Poster Container */}
                 <div className={`relative ${cardLayout === 'compact' ? 'aspect-video' : 'aspect-[3/4]'} overflow-hidden bg-zinc-900`}>
-                  {poster ? (
-                    <img
-                      src={poster}
-                      alt={vid.title}
-                      loading="lazy"
-                      className="w-full h-full object-cover object-top group-hover:scale-106 transition-transform duration-500"
-                    />
-                  ) : (
-                    <div className="w-full h-full bg-gradient-to-br from-purple-950/80 via-zinc-900 to-zinc-950 flex items-center justify-center">
-                      <Film className="w-7 h-7 text-purple-500/30" />
-                    </div>
-                  )}
+                  <VideoPoster poster={poster} title={cleanTitle} />
 
-                  {/* Video Time Badge without hover (opacity 50%) */}
-                  <div className="absolute bottom-2 right-2 z-10 opacity-50 group-hover:opacity-0 transition-opacity duration-200 pointer-events-none">
+                  {/* Video Time Badge without hover */}
+                  <div className="absolute bottom-2 right-2 z-10 opacity-70 group-hover:opacity-0 transition-opacity duration-200 pointer-events-none">
                     <span className="px-1.5 py-0.5 rounded bg-black/80 text-[10px] font-mono font-medium text-white shadow backdrop-blur-sm">
                       {getVideoTime(vid.duration, vid.id)}
                     </span>
                   </div>
 
-                  {/* Hover Overlay: Center Play, Title & Play Now (Clean & Fits Perfectly) */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/50 to-black/30 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-between p-2 z-20">
-                    <div />
+                  {/* Channel Nickname Pill on Top Left */}
+                  <div className="absolute top-2 left-2 z-10 pointer-events-none">
+                    <span className="px-1.5 py-0.5 rounded bg-black/75 border border-white/10 text-[9px] font-mono font-bold text-purple-300 backdrop-blur-sm">
+                      {cleanNick}
+                    </span>
+                  </div>
 
-                    {/* Center: Smaller Compact Play Icon */}
+                  {/* Hover Overlay: Play Raw URL (0 Buffering), In-App Player, Copy URL */}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/55 to-black/30 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-between p-2 z-20">
+                    {/* Top Row in Hover: Quick Actions */}
+                    <div className="flex items-center justify-between">
+                      <span className="text-[9px] font-mono text-zinc-300 bg-black/60 px-1.5 py-0.5 rounded border border-white/10">
+                        {vid.format.toUpperCase()}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSharePlayerLink(vid);
+                          }}
+                          title="Copy Raw Stream URL (0 Buffering)"
+                          className="p-1 rounded-md bg-white/10 hover:bg-white/20 text-zinc-300 hover:text-white transition-colors"
+                        >
+                          {copiedId === vid.id ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedVideo(vid);
+                          }}
+                          title="Play in Ad-Free Vault Player"
+                          className="p-1 rounded-md bg-white/10 hover:bg-purple-600 text-zinc-300 hover:text-white transition-colors"
+                        >
+                          <Tv className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Center: Play Raw URL (0 Buffering in New Tab) */}
                     <div className="self-center">
                       <div
                         onClick={(e) => {
                           e.stopPropagation();
                           openInPlayerTab(vid);
                         }}
-                        title="Play video"
-                        className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-purple-600/90 group-hover:bg-purple-500 text-white flex items-center justify-center shadow-md shadow-purple-600/40 transform group-hover:scale-110 transition-transform cursor-pointer"
+                        title="Play raw video directly in new tab (0 buffering)"
+                        className="w-8 h-8 rounded-full bg-purple-600/90 group-hover:bg-purple-500 text-white flex items-center justify-center shadow-lg shadow-purple-600/50 transform group-hover:scale-110 active:scale-95 transition-all cursor-pointer"
                       >
                         <Play className="w-3.5 h-3.5 fill-white text-white translate-x-0.5" />
                       </div>
                     </div>
 
-                    {/* Bottom: Title & Play Now Option (Fits without overflow) */}
+                    {/* Bottom: Title & Action Buttons */}
                     <div>
                       <h3
-                        className="text-[11px] font-bold text-white leading-tight line-clamp-1 drop-shadow mb-1"
-                        title={vid.title}
+                        className="text-[11px] font-bold text-white leading-tight line-clamp-1 drop-shadow mb-1.5"
+                        title={cleanTitle}
                       >
-                        {vid.title}
+                        {cleanTitle}
                       </h3>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openInPlayerTab(vid);
-                        }}
-                        className="w-full py-1 px-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-[11px] font-bold flex items-center justify-center gap-1 shadow-md shadow-purple-600/40 transition-all active:scale-95"
-                      >
-                        <Play className="w-3 h-3 fill-white" />
-                        <span>Play Now</span>
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openInPlayerTab(vid);
+                          }}
+                          title="Play raw video directly (0 buffering, no website UI)"
+                          className="flex-1 py-1 px-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-[10px] font-bold flex items-center justify-center gap-1 shadow-md shadow-purple-600/40 transition-all active:scale-95"
+                        >
+                          <ExternalLink className="w-2.5 h-2.5" />
+                          <span>Raw (0 Buff)</span>
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedVideo(vid);
+                          }}
+                          title="Play in Ad-Free Vault Player"
+                          className="py-1 px-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[10px] font-semibold transition-all active:scale-95"
+                        >
+                          App
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>

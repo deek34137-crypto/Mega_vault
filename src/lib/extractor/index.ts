@@ -106,7 +106,7 @@ export function unwrapNextImage(src: string, baseUrl: string): string | undefine
 
 export function cleanTitleText(str: string): string {
   if (!str) return 'Video';
-  return str
+  let cleaned = str
     .replace(/&amp;/g, '&')
     .replace(/&#8217;|&rsquo;|&#039;|&apos;/g, "'")
     .replace(/&quot;/g, '"')
@@ -116,6 +116,18 @@ export function cleanTitleText(str: string): string {
     .replace(/<[^>]+>/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+
+  // Strip image/card prefixes like "thumbnail for ", "preview of ", "poster of "
+  cleaned = cleaned.replace(/^(?:thumbnail\s+(?:image\s+)?(?:for|of)|preview\s+of|poster\s+for|watch)\s+/i, '');
+
+  // Strip site promotional suffixes like ", all your anime hentai needs in one place", "on oppai.stream", etc.
+  cleaned = cleaned
+    .replace(/,\s*all your (?:anime\s+)?hentai needs in one place.*$/i, '')
+    .replace(/\s*on\s+[a-z0-9.-]+\.[a-z]{2,}.*$/i, '')
+    .replace(/\s*[-–|]\s*(?:hanime|oppai|henvids|hentai|rule34video|sakura|desihub|xnxx).*$/i, '')
+    .trim();
+
+  return cleaned || 'Video';
 }
 
 export function cleanSectionName(name: string): string {
@@ -715,8 +727,16 @@ export function extractSiteSections(html: string, baseUrl: string): ExtractedSec
         return null;
       }
       const p = full.pathname.toLowerCase();
-      // Must NOT contain post-level patterns
+      // Must NOT contain post-level patterns, comments, auth or user pages
       if (
+        full.hash.includes('comment') ||
+        p.includes('comment') ||
+        p.includes('/signup') ||
+        p.includes('/signin') ||
+        p.includes('/login') ||
+        p.includes('/settings') ||
+        p.includes('/history') ||
+        p.includes('/my-list') ||
         p.includes('/post/') ||
         p.includes('/video-') ||
         p.includes('/watch/') ||
@@ -851,7 +871,7 @@ export function extractSiteSections(html: string, baseUrl: string): ExtractedSec
       }
     }
 
-    if (!label || label.length < 2 || label.length > 30) return false;
+    if (!label || label.length < 2 || label.length > 30 || /^\d+$/.test(label)) return false;
 
     const lowerLabel = label.toLowerCase();
     if (IGNORE_WORDS.has(lowerLabel)) return false;
@@ -1314,6 +1334,59 @@ export async function extractVideosFromUrl(targetUrl: string): Promise<Extractio
 
   // Extract site navigation sections & categories (up to 30)
   const sections = extractSiteSections(html, finalUrl);
+
+  // If homepage or target page has 0 videos, auto-move to the first section of that site that has videos
+  if (extractedVideos.length === 0 && sections.length > 1) {
+    const candidateSections = sections.filter(
+      (s) => s.id !== 'home' && s.url !== finalUrl && !s.url.endsWith('.com') && !s.url.endsWith('.com/')
+    );
+    const bestSection = candidateSections.find((s) =>
+      /video|browse|trending|latest|recent|all|explore|popular/i.test(s.name) ||
+      /video|browse|trending|latest|all/i.test(s.url)
+    ) || candidateSections[0];
+
+    if (bestSection) {
+      try {
+        const secRes = await fetch(bestSection.url, {
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            Referer: finalUrl,
+          },
+        });
+        if (secRes.ok) {
+          const secHtml = await secRes.text();
+          let secCards = extractListingCards(secHtml, secRes.url || bestSection.url);
+          if (secCards.length > 0) {
+            const topSecCards = secCards.slice(0, 30);
+            for (let i = 0; i < topSecCards.length; i += 6) {
+              const batch = topSecCards.slice(i, i + 6);
+              const resolvedBatch = await Promise.all(
+                batch.map(async (card) => {
+                  const resStream = await resolvePageStream(card.url, bestSection.url);
+                  if (resStream && resStream.stream) {
+                    return {
+                      title: resStream.title || card.title,
+                      streamUrl: resStream.stream,
+                      posterUrl: resStream.poster || card.poster || mainPoster,
+                      source: resStream.source,
+                      cardUrl: card.url,
+                    };
+                  }
+                  return null;
+                })
+              );
+              for (const item of resolvedBatch) {
+                if (item) {
+                  addVideo(item.streamUrl, item.posterUrl, item.title, 'channel-card', item.cardUrl);
+                }
+              }
+            }
+          }
+        }
+      } catch {}
+    }
+  }
 
   return {
     pageTitle,
