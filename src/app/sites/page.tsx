@@ -444,43 +444,26 @@ export default function SavedSitesPage() {
     });
   }, [selectedSiteId, currentSite, activeVideoList, videos, searchQuery, currentPage, sectionVideosMap]);
 
-  // Opens video in a brand-new theater tab with NOTHING ELSE, ONLY VIDEO
+  // Opens RAW direct stream URL in a new tab with NOTHING ELSE for 0 buffering
   const openInPlayerTab = useCallback((vid: SavedSiteVideo) => {
-    const stream = (useProxy && vid.proxy_stream_url) ? vid.proxy_stream_url : vid.stream_url;
-    const params = new URLSearchParams({
-      url: stream,
-      title: vid.title,
-      poster: vid.poster_url || '',
-      quality: vid.quality || '',
-      site: vid.site_nickname || '',
-    });
-    window.open(`/player?${params.toString()}`, '_blank', 'noopener,noreferrer');
-  }, [useProxy]);
-
-  // Opens the raw direct video stream file directly in browser
-  const openRawVideoInNewTab = useCallback((vid: SavedSiteVideo) => {
-    const rawUrl = vid.stream_url || vid.proxy_stream_url || '';
-    if (rawUrl) {
+    const raw = vid.stream_url || vid.proxy_stream_url || '';
+    if (raw) {
+      const rawUrl = getHighestQualityRawUrl(raw);
       window.open(rawUrl, '_blank', 'noopener,noreferrer');
     }
   }, []);
 
-  // Shares/copies the clean theater player link
+  // Shares/copies the direct RAW stream URL for zero buffering
   const handleSharePlayerLink = useCallback((vid: SavedSiteVideo) => {
-    const stream = (useProxy && vid.proxy_stream_url) ? vid.proxy_stream_url : vid.stream_url;
-    const params = new URLSearchParams({
-      url: stream,
-      title: vid.title,
-      poster: vid.poster_url || '',
-      quality: vid.quality || '',
-      site: vid.site_nickname || '',
-    });
-    const shareableUrl = `${window.location.origin}/player?${params.toString()}`;
-    navigator.clipboard.writeText(shareableUrl);
-    setCopiedId(vid.id);
-    toastSuccess('Link Copied!', 'Clean player link copied (opens only video in new tab).');
-    setTimeout(() => setCopiedId(null), 2500);
-  }, [useProxy, toastSuccess]);
+    const raw = vid.stream_url || vid.proxy_stream_url || '';
+    if (raw) {
+      const rawUrl = getHighestQualityRawUrl(raw);
+      navigator.clipboard.writeText(rawUrl);
+      setCopiedId(vid.id);
+      toastSuccess('Raw Stream Copied!', 'Direct video URL copied for 0 buffering.');
+      setTimeout(() => setCopiedId(null), 2500);
+    }
+  }, [toastSuccess]);
 
   const handleCopyDirectStream = useCallback((vid: SavedSiteVideo) => {
     const stream = (useProxy && vid.proxy_stream_url) ? vid.proxy_stream_url : vid.stream_url;
@@ -967,27 +950,27 @@ export default function SavedSitesPage() {
                         {vid.title}
                       </h3>
                       <div className="flex items-center gap-1.5">
-                        {/* Primary Action: Open Theater Player in New Tab */}
+                        {/* Primary Action: Open Raw Video in New Tab (0 Buffering) */}
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
                             openInPlayerTab(vid);
                           }}
-                          title="Open clean theater player in new tab (ONLY video, zero ads)"
+                          title="Open RAW direct stream URL in new tab (ONLY video, 0 buffering)"
                           className="flex-1 py-1.5 px-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-[11px] font-bold flex items-center justify-center gap-1 shadow-md shadow-purple-600/30 transition-all active:scale-95"
                         >
                           <Play className="w-3 h-3 fill-white" />
-                          <span>Play</span>
+                          <span>0 Buffering</span>
                           <ExternalLink className="w-3 h-3 text-purple-200 ml-0.5" />
                         </button>
 
-                        {/* Share / Copy Clean Player Link */}
+                        {/* Share / Copy Raw Video URL */}
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
                             handleSharePlayerLink(vid);
                           }}
-                          title="Copy clean player link (opens only video in new tab)"
+                          title="Copy direct RAW video URL (0 buffering)"
                           className="p-1.5 rounded-xl bg-white/[0.1] hover:bg-white/[0.2] border border-white/[0.15] text-zinc-300 hover:text-white transition-all active:scale-90"
                         >
                           {copiedId === vid.id ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
