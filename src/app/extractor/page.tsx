@@ -238,6 +238,7 @@ export default function ExtractorPage() {
     );
   }, [result, searchQuery]);
 
+  // Opens video in a brand-new theater tab with NOTHING ELSE, ONLY VIDEO
   const openInPlayerTab = useCallback((vid: ExtractedVideo) => {
     const stream = (useProxy && vid.proxyStreamUrl) ? vid.proxyStreamUrl : vid.streamUrl;
     const params = new URLSearchParams({
@@ -249,6 +250,13 @@ export default function ExtractorPage() {
     });
     window.open(`/player?${params.toString()}`, '_blank', 'noopener,noreferrer');
   }, [useProxy, result]);
+
+  const openRawVideoInNewTab = useCallback((vid: ExtractedVideo) => {
+    const rawUrl = vid.streamUrl || vid.proxyStreamUrl || '';
+    if (rawUrl) {
+      window.open(rawUrl, '_blank', 'noopener,noreferrer');
+    }
+  }, []);
 
   const handleSharePlayerLink = useCallback((vid: ExtractedVideo) => {
     const stream = (useProxy && vid.proxyStreamUrl) ? vid.proxyStreamUrl : vid.streamUrl;

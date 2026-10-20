@@ -444,7 +444,7 @@ export default function SavedSitesPage() {
     });
   }, [selectedSiteId, currentSite, activeVideoList, videos, searchQuery, currentPage, sectionVideosMap]);
 
-  // Opens video in a brand-new tab with NOTHING ELSE, ONLY VIDEO (Theater Mode)
+  // Opens video in a brand-new theater tab with NOTHING ELSE, ONLY VIDEO
   const openInPlayerTab = useCallback((vid: SavedSiteVideo) => {
     const stream = (useProxy && vid.proxy_stream_url) ? vid.proxy_stream_url : vid.stream_url;
     const params = new URLSearchParams({
@@ -456,6 +456,14 @@ export default function SavedSitesPage() {
     });
     window.open(`/player?${params.toString()}`, '_blank', 'noopener,noreferrer');
   }, [useProxy]);
+
+  // Opens the raw direct video stream file directly in browser
+  const openRawVideoInNewTab = useCallback((vid: SavedSiteVideo) => {
+    const rawUrl = vid.stream_url || vid.proxy_stream_url || '';
+    if (rawUrl) {
+      window.open(rawUrl, '_blank', 'noopener,noreferrer');
+    }
+  }, []);
 
   // Shares/copies the clean theater player link
   const handleSharePlayerLink = useCallback((vid: SavedSiteVideo) => {
