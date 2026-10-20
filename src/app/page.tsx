@@ -30,6 +30,8 @@ import {
   Copy,
   Check,
   RefreshCw,
+  Radio,
+  Globe,
 } from 'lucide-react';
 import { formatBytes } from '@/lib/utils/cn';
 
@@ -83,9 +85,12 @@ export default function HomePage() {
   const [isLoading, setIsLoading] = useState(cachedDisplayFolders.length === 0);
   const [isLoadingMedia, setIsLoadingMedia] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [addModalType, setAddModalType] = useState<'mega' | 'site'>('mega');
   const [newTitle, setNewTitle] = useState('');
   const [newDescription, setNewDescription] = useState('');
   const [newMegaUrl, setNewMegaUrl] = useState('');
+  const [newSiteNickname, setNewSiteNickname] = useState('');
+  const [newSiteUrl, setNewSiteUrl] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Multi-Select & Batch Actions
@@ -317,6 +322,41 @@ export default function HomePage() {
 
   const handleCreateAlbum = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (addModalType === 'site') {
+      if (!newSiteNickname.trim() || !newSiteUrl.trim() || isSubmitting) return;
+
+      try {
+        setIsSubmitting(true);
+        const res = await fetch('/api/sites', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            nickname: newSiteNickname.trim(),
+            url: newSiteUrl.trim(),
+          }),
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success) {
+          setNewSiteNickname('');
+          setNewSiteUrl('');
+          setIsAddModalOpen(false);
+          toastSuccess(
+            'Website Channel Saved!',
+            `Extracted ${data.videosCount} video stream${data.videosCount === 1 ? '' : 's'} from "${data.site.nickname}". Stored for zero-download on-click streaming.`
+          );
+        } else {
+          toastError('Failed to Save Website', data.error || 'Failed to extract website');
+        }
+      } catch (err: any) {
+        toastError('Error', err.message || 'An error occurred while saving the website channel');
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
     if (!newTitle || !newMegaUrl || isSubmitting) return;
 
     try {
@@ -608,6 +648,15 @@ export default function HomePage() {
             <RefreshCw className={`w-4 h-4 text-purple-400 ${isLoadingMedia ? 'animate-spin' : ''}`} />
             <span className="hidden sm:inline">Sync Vault</span>
           </button>
+
+          <Link
+            href="/extractor"
+            title="Stateless Ad-Free Video Stream Extractor"
+            className="p-2 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 hover:text-white border border-purple-500/30 transition-all text-xs flex items-center gap-1.5"
+          >
+            <Radio className="w-4 h-4 text-purple-400" />
+            <span className="hidden sm:inline">Stream Extractor</span>
+          </Link>
 
           <button
             onClick={() => setIsAddModalOpen(true)}
@@ -1116,89 +1165,179 @@ export default function HomePage() {
               <X className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
-                <HardDrive className="w-6 h-6 text-red-400" />
-              </div>
-
-              {/* Demo Fill Button */}
+            {/* Mode Switcher Tabs */}
+            <div className="flex items-center space-x-2 p-1 rounded-2xl bg-zinc-900 border border-zinc-800 mb-6">
               <button
                 type="button"
-                onClick={handleFillDemo}
-                className="px-3 py-1.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-300 hover:text-white hover:bg-purple-500/20 text-xs font-semibold flex items-center gap-1.5 transition-all"
+                onClick={() => setAddModalType('mega')}
+                className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                  addModalType === 'mega'
+                    ? 'bg-blue-600 text-white shadow-md'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
               >
-                <PlayCircle className="w-3.5 h-3.5" />
-                <span>Fill Demo Link</span>
+                <Folder className="w-3.5 h-3.5" />
+                <span>MEGA Folder Album</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setAddModalType('site')}
+                className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                  addModalType === 'site'
+                    ? 'bg-purple-600 text-white shadow-md'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                <Globe className="w-3.5 h-3.5" />
+                <span>Website Channel</span>
               </button>
             </div>
 
-            <h3 className="text-xl font-bold text-white mb-1">Add MEGA Folder Album</h3>
-            <p className="text-xs text-zinc-400 mb-6">
-              Paste your shared MEGA folder link. MegaVault will index media and subfolders without uploading or storing files.
-            </p>
-
-            <form onSubmit={handleCreateAlbum} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
-                  Album Title
-                </label>
-                <input
-                  type="text"
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
-                  placeholder="e.g. Family Vacation 2026"
-                  required
-                  className="w-full bg-zinc-900 border border-zinc-700/70 rounded-xl px-4 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
-                  Description (Optional)
-                </label>
-                <input
-                  type="text"
-                  value={newDescription}
-                  onChange={(e) => setNewDescription(e.target.value)}
-                  placeholder="e.g. Beach sunsets and highlights"
-                  className="w-full bg-zinc-900 border border-zinc-700/70 rounded-xl px-4 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
-                  MEGA Folder URL
-                </label>
-                <div className="relative">
-                  <LinkIcon className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    value={newMegaUrl}
-                    onChange={(e) => setNewMegaUrl(e.target.value)}
-                    placeholder="https://mega.nz/folder/..."
-                    required
-                    className="w-full bg-zinc-900 border border-zinc-700/70 rounded-xl pl-10 pr-4 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-blue-500"
-                  />
+            {addModalType === 'mega' ? (
+              <>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-lg font-bold text-white">Add MEGA Folder Album</h3>
+                  <button
+                    type="button"
+                    onClick={handleFillDemo}
+                    className="px-2.5 py-1 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-300 hover:text-white text-xs font-semibold flex items-center gap-1"
+                  >
+                    <PlayCircle className="w-3.5 h-3.5" />
+                    <span>Demo Link</span>
+                  </button>
                 </div>
-              </div>
+                <p className="text-xs text-zinc-400 mb-5">
+                  Paste your shared MEGA folder link. MegaVault indexes media and subfolders without storing files.
+                </p>
 
-              <div className="pt-4 flex items-center justify-end space-x-3">
-                <button
-                  type="button"
-                  onClick={() => setIsAddModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-sm font-medium text-zinc-400 hover:text-white"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-semibold transition-all shadow-md shadow-blue-600/20"
-                >
-                  {isSubmitting ? 'Saving Album...' : 'Save Album'}
-                </button>
-              </div>
-            </form>
+                <form onSubmit={handleCreateAlbum} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                      Album Title
+                    </label>
+                    <input
+                      type="text"
+                      value={newTitle}
+                      onChange={(e) => setNewTitle(e.target.value)}
+                      placeholder="e.g. Family Vacation 2026"
+                      required
+                      className="w-full bg-zinc-900 border border-zinc-700/70 rounded-xl px-4 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                      Description (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={newDescription}
+                      onChange={(e) => setNewDescription(e.target.value)}
+                      placeholder="e.g. Beach sunsets and highlights"
+                      className="w-full bg-zinc-900 border border-zinc-700/70 rounded-xl px-4 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                      MEGA Folder URL
+                    </label>
+                    <div className="relative">
+                      <LinkIcon className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={newMegaUrl}
+                        onChange={(e) => setNewMegaUrl(e.target.value)}
+                        placeholder="https://mega.nz/folder/..."
+                        required
+                        className="w-full bg-zinc-900 border border-zinc-700/70 rounded-xl pl-10 pr-4 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-blue-500 font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="pt-3 flex items-center justify-end space-x-3">
+                    <button
+                      type="button"
+                      onClick={() => setIsAddModalOpen(false)}
+                      className="px-4 py-2 rounded-xl text-sm font-medium text-zinc-400 hover:text-white"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSubmitting}
+                      className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-semibold transition-all shadow-md shadow-blue-600/20"
+                    >
+                      {isSubmitting ? 'Saving Album...' : 'Save Album'}
+                    </button>
+                  </div>
+                </form>
+              </>
+            ) : (
+              <>
+                <h3 className="text-lg font-bold text-white mb-1">Add Website Video Channel</h3>
+                <p className="text-xs text-zinc-400 mb-5">
+                  Give any site a nickname. MegaVault extracts video streams with real thumbnails. Videos play strictly on click with zero popups or pre-downloading.
+                </p>
+
+                <form onSubmit={handleCreateAlbum} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                      Website Nickname / Label
+                    </label>
+                    <input
+                      type="text"
+                      value={newSiteNickname}
+                      onChange={(e) => setNewSiteNickname(e.target.value)}
+                      placeholder="e.g. My Anime Site, Tech Tutorials, Movie Vault"
+                      required
+                      className="w-full bg-zinc-900 border border-zinc-700/70 rounded-xl px-4 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                      Website URL
+                    </label>
+                    <div className="relative">
+                      <LinkIcon className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={newSiteUrl}
+                        onChange={(e) => setNewSiteUrl(e.target.value)}
+                        placeholder="https://your-site.com/videos"
+                        required
+                        className="w-full bg-zinc-900 border border-zinc-700/70 rounded-xl pl-10 pr-4 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500 font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="pt-3 flex items-center justify-end space-x-3">
+                    <button
+                      type="button"
+                      onClick={() => setIsAddModalOpen(false)}
+                      className="px-4 py-2 rounded-xl text-sm font-medium text-zinc-400 hover:text-white"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSubmitting}
+                      className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white text-sm font-bold transition-all shadow-md shadow-purple-600/25 flex items-center gap-2"
+                    >
+                      {isSubmitting ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <span>Scanning & Saving...</span>
+                        </>
+                      ) : (
+                        <span>Save Channel</span>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              </>
+            )}
           </div>
         </div>
       )}

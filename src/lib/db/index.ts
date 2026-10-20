@@ -226,6 +226,37 @@ async function ensureTursoSchema(client: Client): Promise<void> {
   try {
     await client.execute(`CREATE INDEX IF NOT EXISTS idx_access_tokens_token ON access_tokens(token);`);
   } catch {}
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS saved_sites (
+      id TEXT PRIMARY KEY,
+      nickname TEXT NOT NULL,
+      url TEXT NOT NULL,
+      poster_url TEXT,
+      video_count INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT
+    );
+  `);
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS saved_site_videos (
+      id TEXT PRIMARY KEY,
+      site_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      stream_url TEXT NOT NULL,
+      proxy_stream_url TEXT,
+      poster_url TEXT,
+      format TEXT,
+      mime_type TEXT,
+      source TEXT,
+      created_at TEXT NOT NULL
+    );
+  `);
+  try {
+    await client.execute(`CREATE INDEX IF NOT EXISTS idx_saved_site_videos_site ON saved_site_videos(site_id);`);
+  } catch {}
+  try {
+    await client.execute(`CREATE INDEX IF NOT EXISTS idx_saved_sites_created ON saved_sites(created_at);`);
+  } catch {}
   tursoInitialized = true;
 }
 
@@ -283,6 +314,29 @@ function getLocalDb(): Database.Database {
         payment_type TEXT NOT NULL,
         telegram_id TEXT
       );
+      CREATE TABLE IF NOT EXISTS saved_sites (
+        id TEXT PRIMARY KEY,
+        nickname TEXT NOT NULL,
+        url TEXT NOT NULL,
+        poster_url TEXT,
+        video_count INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT
+      );
+      CREATE TABLE IF NOT EXISTS saved_site_videos (
+        id TEXT PRIMARY KEY,
+        site_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        stream_url TEXT NOT NULL,
+        proxy_stream_url TEXT,
+        poster_url TEXT,
+        format TEXT,
+        mime_type TEXT,
+        source TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_saved_site_videos_site ON saved_site_videos(site_id);
+      CREATE INDEX IF NOT EXISTS idx_saved_sites_created ON saved_sites(created_at);
       CREATE INDEX IF NOT EXISTS idx_video_thumbnails_album ON video_thumbnails(album_id);
       CREATE INDEX IF NOT EXISTS idx_favorites_album ON favorites(album_id);
       CREATE INDEX IF NOT EXISTS idx_albums_created_at ON albums(created_at);
@@ -1206,5 +1260,325 @@ export async function verifyAndConsumeAccessToken(token: string, clientIp: strin
 
   return { success: true };
 }
+
+// ==========================================
+// SAVED WEBSITES & ZERO-DOWNLOAD STREAM CHANNELS
+// ==========================================
+
+export interface SavedSite {
+  id: string;
+  nickname: string;
+  url: string;
+  poster_url?: string | null;
+  video_count: number;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+export interface SavedSiteVideo {
+  id: string;
+  site_id: string;
+  title: string;
+  stream_url: string;
+  proxy_stream_url?: string | null;
+  poster_url?: string | null;
+  format: string;
+  mime_type: string;
+  source?: string | null;
+  created_at: string;
+  site_nickname?: string;
+}
+
+export async function createSavedSite(site: SavedSite): Promise<void> {
+  const encUrl = encryptText(site.url);
+
+  const client = getTursoClient();
+  if (client) {
+    try {
+      await ensureTursoSchema(client);
+      await client.execute({
+        sql: `INSERT OR REPLACE INTO saved_sites (id, nickname, url, poster_url, video_count, created_at, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        args: [site.id, site.nickname, encUrl, site.poster_url || null, site.video_count || 0, site.created_at, site.updated_at || site.created_at],
+      });
+    } catch (e) {
+      console.error('[MegaVault] Turso createSavedSite error:', e);
+    }
+  }
+
+  try {
+    const db = getLocalDb();
+    const stmt = db.prepare(`
+      INSERT OR REPLACE INTO saved_sites (id, nickname, url, poster_url, video_count, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(site.id, site.nickname, encUrl, site.poster_url || null, site.video_count || 0, site.created_at, site.updated_at || site.created_at);
+  } catch (e) {
+    console.error('[MegaVault] Local DB createSavedSite error:', e);
+  }
+}
+
+export async function getAllSavedSites(): Promise<SavedSite[]> {
+  let sites: SavedSite[] = [];
+
+  const client = getTursoClient();
+  if (client) {
+    try {
+      await ensureTursoSchema(client);
+      const res = await client.execute('SELECT * FROM saved_sites ORDER BY created_at DESC');
+      sites = res.rows.map((row: any) => ({
+        id: String(row.id),
+        nickname: String(row.nickname),
+        url: decryptText(String(row.url)),
+        poster_url: row.poster_url ? String(row.poster_url) : null,
+        video_count: Number(row.video_count || 0),
+        created_at: String(row.created_at),
+        updated_at: row.updated_at ? String(row.updated_at) : null,
+      }));
+    } catch (e) {
+      console.error('[MegaVault] Turso getAllSavedSites error:', e);
+    }
+  }
+
+  if (sites.length === 0) {
+    try {
+      const db = getLocalDb();
+      const stmt = db.prepare('SELECT * FROM saved_sites ORDER BY created_at DESC');
+      const rows = stmt.all() as any[];
+      if (rows && rows.length > 0) {
+        sites = rows.map((row) => ({
+          id: row.id,
+          nickname: row.nickname,
+          url: decryptText(row.url),
+          poster_url: row.poster_url,
+          video_count: Number(row.video_count || 0),
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+        }));
+      }
+    } catch (e) {
+      console.error('[MegaVault] Local DB getAllSavedSites error:', e);
+    }
+  }
+
+  return sites;
+}
+
+export async function getSavedSiteById(id: string): Promise<SavedSite | null> {
+  const client = getTursoClient();
+  if (client) {
+    try {
+      await ensureTursoSchema(client);
+      const res = await client.execute({
+        sql: 'SELECT * FROM saved_sites WHERE id = ?',
+        args: [id],
+      });
+      if (res.rows.length > 0) {
+        const row = res.rows[0];
+        return {
+          id: String(row.id),
+          nickname: String(row.nickname),
+          url: decryptText(String(row.url)),
+          poster_url: row.poster_url ? String(row.poster_url) : null,
+          video_count: Number(row.video_count || 0),
+          created_at: String(row.created_at),
+          updated_at: row.updated_at ? String(row.updated_at) : null,
+        };
+      }
+    } catch (e) {
+      console.error('[MegaVault] Turso getSavedSiteById error:', e);
+    }
+  }
+
+  try {
+    const db = getLocalDb();
+    const stmt = db.prepare('SELECT * FROM saved_sites WHERE id = ?');
+    const row = stmt.get(id) as any;
+    if (row) {
+      return {
+        id: row.id,
+        nickname: row.nickname,
+        url: decryptText(row.url),
+        poster_url: row.poster_url,
+        video_count: Number(row.video_count || 0),
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+      };
+    }
+  } catch (e) {
+    console.error('[MegaVault] Local DB getSavedSiteById error:', e);
+  }
+
+  return null;
+}
+
+export async function deleteSavedSite(id: string): Promise<void> {
+  const client = getTursoClient();
+  if (client) {
+    try {
+      await ensureTursoSchema(client);
+      await client.execute({ sql: 'DELETE FROM saved_site_videos WHERE site_id = ?', args: [id] });
+      await client.execute({ sql: 'DELETE FROM saved_sites WHERE id = ?', args: [id] });
+    } catch (e) {
+      console.error('[MegaVault] Turso deleteSavedSite error:', e);
+    }
+  }
+
+  try {
+    const db = getLocalDb();
+    db.prepare('DELETE FROM saved_site_videos WHERE site_id = ?').run(id);
+    db.prepare('DELETE FROM saved_sites WHERE id = ?').run(id);
+  } catch (e) {
+    console.error('[MegaVault] Local DB deleteSavedSite error:', e);
+  }
+}
+
+export async function saveSiteVideos(siteId: string, videos: Omit<SavedSiteVideo, 'site_id'>[], posterUrl?: string): Promise<void> {
+  const client = getTursoClient();
+  if (client) {
+    try {
+      await ensureTursoSchema(client);
+      await client.execute({ sql: 'DELETE FROM saved_site_videos WHERE site_id = ?', args: [siteId] });
+      for (const v of videos) {
+        await client.execute({
+          sql: `INSERT INTO saved_site_videos (id, site_id, title, stream_url, proxy_stream_url, poster_url, format, mime_type, source, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [v.id, siteId, v.title, v.stream_url, v.proxy_stream_url || null, v.poster_url || null, v.format, v.mime_type, v.source || 'html5', v.created_at],
+        });
+      }
+      await client.execute({
+        sql: `UPDATE saved_sites SET video_count = ?, poster_url = COALESCE(?, poster_url), updated_at = ? WHERE id = ?`,
+        args: [videos.length, posterUrl || null, new Date().toISOString(), siteId],
+      });
+    } catch (e) {
+      console.error('[MegaVault] Turso saveSiteVideos error:', e);
+    }
+  }
+
+  try {
+    const db = getLocalDb();
+    const deleteStmt = db.prepare('DELETE FROM saved_site_videos WHERE site_id = ?');
+    const insertStmt = db.prepare(`
+      INSERT INTO saved_site_videos (id, site_id, title, stream_url, proxy_stream_url, poster_url, format, mime_type, source, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const updateSiteStmt = db.prepare(`
+      UPDATE saved_sites SET video_count = ?, poster_url = COALESCE(?, poster_url), updated_at = ? WHERE id = ?
+    `);
+
+    const transaction = db.transaction(() => {
+      deleteStmt.run(siteId);
+      for (const v of videos) {
+        insertStmt.run(v.id, siteId, v.title, v.stream_url, v.proxy_stream_url || null, v.poster_url || null, v.format, v.mime_type, v.source || 'html5', v.created_at);
+      }
+      updateSiteStmt.run(videos.length, posterUrl || null, new Date().toISOString(), siteId);
+    });
+
+    transaction();
+  } catch (e) {
+    console.error('[MegaVault] Local DB saveSiteVideos error:', e);
+  }
+}
+
+export async function getAllSavedSiteVideos(searchQuery?: string, siteId?: string): Promise<SavedSiteVideo[]> {
+  let videos: SavedSiteVideo[] = [];
+  const q = searchQuery ? searchQuery.trim().toLowerCase() : '';
+
+  const client = getTursoClient();
+  if (client) {
+    try {
+      await ensureTursoSchema(client);
+      let sql = `
+        SELECT v.*, s.nickname as site_nickname
+        FROM saved_site_videos v
+        JOIN saved_sites s ON v.site_id = s.id
+      `;
+      const args: any[] = [];
+      const conditions: string[] = [];
+
+      if (siteId) {
+        conditions.push('v.site_id = ?');
+        args.push(siteId);
+      }
+      if (q) {
+        conditions.push('(LOWER(v.title) LIKE ? OR LOWER(s.nickname) LIKE ?)');
+        args.push(`%${q}%`, `%${q}%`);
+      }
+
+      if (conditions.length > 0) {
+        sql += ` WHERE ` + conditions.join(' AND ');
+      }
+      sql += ` ORDER BY v.created_at DESC`;
+
+      const res = await client.execute({ sql, args });
+      videos = res.rows.map((row: any) => ({
+        id: String(row.id),
+        site_id: String(row.site_id),
+        title: String(row.title),
+        stream_url: String(row.stream_url),
+        proxy_stream_url: row.proxy_stream_url ? String(row.proxy_stream_url) : null,
+        poster_url: row.poster_url ? String(row.poster_url) : null,
+        format: String(row.format),
+        mime_type: String(row.mime_type),
+        source: row.source ? String(row.source) : null,
+        created_at: String(row.created_at),
+        site_nickname: row.site_nickname ? String(row.site_nickname) : undefined,
+      }));
+    } catch (e) {
+      console.error('[MegaVault] Turso getAllSavedSiteVideos error:', e);
+    }
+  }
+
+  if (videos.length === 0) {
+    try {
+      const db = getLocalDb();
+      let sql = `
+        SELECT v.*, s.nickname as site_nickname
+        FROM saved_site_videos v
+        JOIN saved_sites s ON v.site_id = s.id
+      `;
+      const args: any[] = [];
+      const conditions: string[] = [];
+
+      if (siteId) {
+        conditions.push('v.site_id = ?');
+        args.push(siteId);
+      }
+      if (q) {
+        conditions.push('(LOWER(v.title) LIKE ? OR LOWER(s.nickname) LIKE ?)');
+        args.push(`%${q}%`, `%${q}%`);
+      }
+
+      if (conditions.length > 0) {
+        sql += ` WHERE ` + conditions.join(' AND ');
+      }
+      sql += ` ORDER BY v.created_at DESC`;
+
+      const stmt = db.prepare(sql);
+      const rows = stmt.all(...args) as any[];
+      if (rows && rows.length > 0) {
+        videos = rows.map((row) => ({
+          id: row.id,
+          site_id: row.site_id,
+          title: row.title,
+          stream_url: row.stream_url,
+          proxy_stream_url: row.proxy_stream_url,
+          poster_url: row.poster_url,
+          format: row.format,
+          mime_type: row.mime_type,
+          source: row.source,
+          created_at: row.created_at,
+          site_nickname: row.site_nickname,
+        }));
+      }
+    } catch (e) {
+      console.error('[MegaVault] Local DB getAllSavedSiteVideos error:', e);
+    }
+  }
+
+  return videos;
+}
+
 
 

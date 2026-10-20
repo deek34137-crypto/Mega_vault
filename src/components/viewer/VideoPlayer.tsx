@@ -69,7 +69,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [media.id]);
 
   const captureThumbnail = useCallback(() => {
-    if (capturedRef.current || !videoRef.current) return;
+    if (capturedRef.current || !videoRef.current || media.albumId === 'web-extracted' || !media.fileHandle) return;
     const video = videoRef.current;
     if (video.videoWidth === 0 || video.videoHeight === 0) return;
 

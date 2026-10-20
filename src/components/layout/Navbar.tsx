@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { HardDrive, Home, Star, Settings, LogOut, Search, Menu, X } from 'lucide-react';
+import { HardDrive, Home, Star, Settings, LogOut, Search, Menu, X, Radio, Globe } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import { PrimaryLogoSvg } from '@/components/brand/LogoVariants';
 
@@ -41,7 +41,9 @@ export const Navbar: React.FC = () => {
 
   const navLinks = [
     { label: 'Gallery', href: '/', icon: Home },
+    { label: 'Saved Sites', href: '/sites', icon: Globe },
     { label: 'Favorites', href: '/favorites', icon: Star, badge: favCount > 0 ? favCount : undefined },
+    { label: 'Stream Extractor', href: '/extractor', icon: Radio },
     { label: 'Settings', href: '/settings', icon: Settings },
   ];
 
