@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import { ToastContainer } from '@/components/ui/Toast';
 import { useToast } from '@/hooks/useToast';
+import { getHighestQualityRawUrl } from '@/lib/extractor';
 
 export interface ExtractedSection {
   id: string;
@@ -190,16 +191,20 @@ export default function SavedSitesPage() {
   }, [sites, selectedSiteId]);
 
   const browseSectionPage = useCallback(
-    async (site: SavedSite, sectionUrl: string, page: number) => {
-      const cacheKey = `${site.id}_${sectionUrl}_${page}`;
-      if (sectionVideosMap[cacheKey] && sectionVideosMap[cacheKey].length > 0) return;
+    async (site: SavedSite, sectionUrl: string, page: number, query?: string) => {
+      const q = (query || '').trim();
+      const cacheKey = q
+        ? `${site.id}_search_${q.toLowerCase()}_${page}`
+        : `${site.id}_${sectionUrl}_${page}`;
+
+      if (!q && sectionVideosMap[cacheKey] && sectionVideosMap[cacheKey].length > 0) return;
 
       try {
         setIsBrowsingPage(true);
         const res = await fetch(`/api/sites/${site.id}/browse`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sectionUrl, page }),
+          body: JSON.stringify({ sectionUrl, page, query: q }),
         });
 
         if (res.ok) {
@@ -221,6 +226,14 @@ export default function SavedSitesPage() {
           setSectionVideosMap((prev) => ({ ...prev, [cacheKey]: items }));
           setHasNextPage(items.length > 0);
 
+          if (q) {
+            if (items.length > 0) {
+              toastSuccess('Live Search Found', `Extracted ${items.length} streams for "${q}".`);
+            } else {
+              toastInfo('No Live Streams', `No streamable videos found on ${site.nickname} for "${q}".`);
+            }
+          }
+
           if (data.sections && data.sections.length > 0) {
             setSites((prev) =>
               prev.map((s) => (s.id === site.id ? { ...s, sections: data.sections } : s))
@@ -235,7 +248,7 @@ export default function SavedSitesPage() {
         setIsBrowsingPage(false);
       }
     },
-    [sectionVideosMap, toastError]
+    [sectionVideosMap, toastError, toastSuccess, toastInfo]
   );
 
   const handleSelectSection = (sectionUrl: string | null) => {
@@ -243,7 +256,10 @@ export default function SavedSitesPage() {
     setActiveSectionUrl(sectionUrl);
     setCurrentPage(1);
     setHasNextPage(true);
-    if (sectionUrl) browseSectionPage(currentSite, sectionUrl, 1);
+    setSearchQuery('');
+    if (sectionUrl) {
+      browseSectionPage(currentSite, sectionUrl, 1);
+    }
     videoGridRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
@@ -251,7 +267,15 @@ export default function SavedSitesPage() {
     if (!currentSite || newPage < 1 || isBrowsingPage) return;
     setCurrentPage(newPage);
     const targetSection = activeSectionUrl || currentSite.url;
-    await browseSectionPage(currentSite, targetSection, newPage);
+    await browseSectionPage(currentSite, targetSection, newPage, searchQuery.trim() || undefined);
+    videoGridRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const handleLiveSearchOnSite = async () => {
+    if (!currentSite || !searchQuery.trim() || isBrowsingPage) return;
+    setCurrentPage(1);
+    const targetSection = activeSectionUrl || currentSite.url;
+    await browseSectionPage(currentSite, targetSection, 1, searchQuery.trim());
     videoGridRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
@@ -333,7 +357,7 @@ export default function SavedSitesPage() {
     return sites.reduce((sum, s) => sum + (s.video_count || 0), 0);
   }, [sites]);
 
-  // Clean sections strictly matching the current site's root domain (prevents third-party ad links from showing as sections)
+  // Clean sections strictly matching the current site's root domain
   const siteSections = useMemo(() => {
     if (!currentSite?.sections || currentSite.sections.length === 0) return [];
     try {
@@ -352,20 +376,41 @@ export default function SavedSitesPage() {
     }
   }, [currentSite]);
 
-  // Active videos for the current channel (taking into account browsed sections/pages)
+  // Active videos for the current channel:
+  // - If live search was performed: return live search results
+  // - If a specific section is chosen: return that section's videos (or empty while loading/empty, NEVER leak homepage videos)
+  // - If page > 1: return that page's videos
+  // - Otherwise: return channel's default indexed videos
   const activeVideoList = useMemo(() => {
     if (!currentSite) return videos;
 
-    if (activeSectionUrl || currentPage > 1) {
-      const targetUrl = activeSectionUrl || currentSite.url;
-      const cacheKey = `${currentSite.id}_${targetUrl}_${currentPage}`;
-      if (sectionVideosMap[cacheKey] && sectionVideosMap[cacheKey].length > 0) {
-        return sectionVideosMap[cacheKey].filter((v) => v.site_id === currentSite.id);
+    const q = searchQuery.trim().toLowerCase();
+    if (q) {
+      const searchKey = `${currentSite.id}_search_${q}_${currentPage}`;
+      if (sectionVideosMap[searchKey] !== undefined) {
+        return sectionVideosMap[searchKey];
       }
     }
 
+    if (activeSectionUrl) {
+      const cacheKey = `${currentSite.id}_${activeSectionUrl}_${currentPage}`;
+      if (sectionVideosMap[cacheKey] !== undefined) {
+        return sectionVideosMap[cacheKey];
+      }
+      return []; // Real-time section is loading or returned 0: do not show homepage videos!
+    }
+
+    if (currentPage > 1) {
+      const targetUrl = currentSite.url;
+      const cacheKey = `${currentSite.id}_${targetUrl}_${currentPage}`;
+      if (sectionVideosMap[cacheKey] !== undefined) {
+        return sectionVideosMap[cacheKey];
+      }
+      return [];
+    }
+
     return videos.filter((v) => v.site_id === currentSite.id);
-  }, [currentSite, activeSectionUrl, currentPage, sectionVideosMap, videos]);
+  }, [currentSite, searchQuery, activeSectionUrl, currentPage, sectionVideosMap, videos]);
 
   // Search Filtering:
   // - If a specific channel is selected: ONLY search within that channel
@@ -375,6 +420,11 @@ export default function SavedSitesPage() {
 
     // 1. Specific Channel Selected -> SEARCH ONLY IN THIS CHANNEL
     if (selectedSiteId && currentSite) {
+      const searchKey = `${currentSite.id}_search_${q}_${currentPage}`;
+      if (q && sectionVideosMap[searchKey] !== undefined) {
+        return sectionVideosMap[searchKey];
+      }
+
       const siteVideos = activeVideoList.filter((v) => v.site_id === currentSite.id);
       if (!q) return siteVideos;
       return siteVideos.filter((v) => {
@@ -392,14 +442,9 @@ export default function SavedSitesPage() {
       const formatMatch = v.format.toLowerCase().includes(q);
       return titleMatch || nicknameMatch || formatMatch;
     });
-  }, [selectedSiteId, currentSite, activeVideoList, videos, searchQuery]);
+  }, [selectedSiteId, currentSite, activeVideoList, videos, searchQuery, currentPage, sectionVideosMap]);
 
-  const handleCopyLink = (id: string, url: string) => {
-    navigator.clipboard.writeText(url);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2500);
-  };
-
+  // Opens video in a brand-new tab with NOTHING ELSE, ONLY VIDEO (Theater Mode)
   const openInPlayerTab = useCallback((vid: SavedSiteVideo) => {
     const stream = (useProxy && vid.proxy_stream_url) ? vid.proxy_stream_url : vid.stream_url;
     const params = new URLSearchParams({
@@ -411,6 +456,31 @@ export default function SavedSitesPage() {
     });
     window.open(`/player?${params.toString()}`, '_blank', 'noopener,noreferrer');
   }, [useProxy]);
+
+  // Shares/copies the clean theater player link
+  const handleSharePlayerLink = useCallback((vid: SavedSiteVideo) => {
+    const stream = (useProxy && vid.proxy_stream_url) ? vid.proxy_stream_url : vid.stream_url;
+    const params = new URLSearchParams({
+      url: stream,
+      title: vid.title,
+      poster: vid.poster_url || '',
+      quality: vid.quality || '',
+      site: vid.site_nickname || '',
+    });
+    const shareableUrl = `${window.location.origin}/player?${params.toString()}`;
+    navigator.clipboard.writeText(shareableUrl);
+    setCopiedId(vid.id);
+    toastSuccess('Link Copied!', 'Clean player link copied (opens only video in new tab).');
+    setTimeout(() => setCopiedId(null), 2500);
+  }, [useProxy, toastSuccess]);
+
+  const handleCopyDirectStream = useCallback((vid: SavedSiteVideo) => {
+    const stream = (useProxy && vid.proxy_stream_url) ? vid.proxy_stream_url : vid.stream_url;
+    navigator.clipboard.writeText(stream);
+    setCopiedId(vid.id);
+    toastSuccess('Stream URL Copied!', 'Direct media stream URL copied to clipboard.');
+    setTimeout(() => setCopiedId(null), 2500);
+  }, [useProxy, toastSuccess]);
 
   const playerMediaItem: MediaItem | null = selectedVideo
     ? {
@@ -536,21 +606,46 @@ export default function SavedSitesPage() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && selectedSiteId && currentSite && searchQuery.trim()) {
+                handleLiveSearchOnSite();
+              }
+            }}
             placeholder={
               selectedSiteId && currentSite
-                ? `Search only within "${currentSite.nickname}"...`
+                ? `Search "${currentSite.nickname}" (press Enter for live site search)...`
                 : `Search across all ${totalIndexedCount || videos.length} videos from ${sites.length} channels...`
             }
-            className="w-full bg-white/[0.04] border border-white/[0.07] rounded-2xl pl-11 pr-10 py-3.5 text-sm text-zinc-200 placeholder-zinc-700 focus:outline-none focus:border-purple-500/50 transition-all backdrop-blur-sm"
+            className="w-full bg-white/[0.04] border border-white/[0.07] rounded-2xl pl-11 pr-32 py-3.5 text-sm text-zinc-200 placeholder-zinc-700 focus:outline-none focus:border-purple-500/50 transition-all backdrop-blur-sm"
           />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-600 hover:text-zinc-400"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
+
+          <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+            {selectedSiteId && currentSite && searchQuery.trim() && (
+              <button
+                onClick={handleLiveSearchOnSite}
+                disabled={isBrowsingPage}
+                title={`Search "${searchQuery}" live on ${currentSite.nickname}`}
+                className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-purple-600/30 transition-all active:scale-95 disabled:opacity-50"
+              >
+                {isBrowsingPage ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Zap className="w-3.5 h-3.5 fill-white" />
+                )}
+                <span className="hidden sm:inline">Search Site</span>
+              </button>
+            )}
+
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="p-1 text-zinc-600 hover:text-zinc-300 transition-colors"
+                title="Clear search"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Compact Banner when Channels are Hidden but a specific channel is filtered */}
@@ -800,7 +895,7 @@ export default function SavedSitesPage() {
                 onMouseEnter={() => setHoveredId(vid.id)}
                 onMouseLeave={() => setHoveredId(null)}
                 onClick={() => openInPlayerTab(vid)}
-                className="group relative rounded-2xl overflow-hidden border border-white/[0.08] bg-zinc-950 cursor-pointer shadow-md hover:border-purple-500/50 hover:shadow-2xl hover:shadow-purple-500/20 transition-all duration-300"
+                className="group relative rounded-2xl overflow-hidden border border-white/[0.08] bg-zinc-950 cursor-pointer shadow-md hover:border-purple-500/50 hover:shadow-2xl hover:shadow-purple-500/20 transition-all duration-300 w-full max-w-[280px] mx-auto"
                 style={{
                   transform: isHovered ? 'translateY(-3px) scale(1.015)' : 'none',
                 }}
@@ -827,35 +922,81 @@ export default function SavedSitesPage() {
                     </span>
                   </div>
 
-                  {/* Hover Overlay: ONLY title and play video, nothing else */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/50 to-black/30 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-between p-3 z-20">
-                    <div />
-
-                    {/* Center: Play Icon */}
-                    <div className="self-center">
-                      <div className="w-12 h-12 rounded-full bg-purple-600/90 group-hover:bg-purple-500 text-white flex items-center justify-center shadow-xl shadow-purple-600/50 transform group-hover:scale-110 transition-transform">
-                        <Play className="w-5 h-5 fill-white text-white translate-x-0.5" />
-                      </div>
+                  {/* Hover Overlay: Badges, Center Play, Title & Action Options */}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/50 to-black/30 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-between p-2.5 sm:p-3 z-20">
+                    {/* Top Row: Format & Site Badge */}
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase font-mono tracking-wider bg-purple-500/40 border border-purple-500/50 text-purple-200 shadow-md backdrop-blur-md">
+                        {vid.quality || (vid.stream_url.includes('1080') ? '1080p FHD' : vid.stream_url.includes('720') ? '720p HD' : vid.format.split(' ')[0])}
+                      </span>
+                      {vid.site_nickname && !selectedSiteId && (
+                        <span className="px-1.5 py-0.5 rounded-md bg-purple-600/90 text-[9px] font-bold text-white truncate max-w-[85px] shadow-md">
+                          {vid.site_nickname}
+                        </span>
+                      )}
                     </div>
 
-                    {/* Bottom: Title & Play Video Option ONLY */}
-                    <div>
-                      <h3
-                        className="text-xs font-bold text-white leading-tight line-clamp-2 drop-shadow-md mb-2.5"
-                        title={vid.title}
-                      >
-                        {vid.title}
-                      </h3>
-                      <button
+                    {/* Center: Play Icon (Click opens Theater Player in New Tab) */}
+                    <div className="self-center">
+                      <div
                         onClick={(e) => {
                           e.stopPropagation();
                           openInPlayerTab(vid);
                         }}
-                        className="w-full py-1.5 px-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-md shadow-purple-600/40 transition-all"
+                        title="Open video in clean new tab"
+                        className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-purple-600/90 group-hover:bg-purple-500 text-white flex items-center justify-center shadow-lg shadow-purple-600/50 transform group-hover:scale-110 transition-transform cursor-pointer"
                       >
-                        <Play className="w-3.5 h-3.5 fill-white" />
-                        <span>Play Video</span>
-                      </button>
+                        <Play className="w-4 h-4 sm:w-5 sm:h-5 fill-white text-white translate-x-0.5" />
+                      </div>
+                    </div>
+
+                    {/* Bottom: Title & Action Options */}
+                    <div>
+                      <h3
+                        className="text-[11px] sm:text-xs font-bold text-white leading-tight line-clamp-2 drop-shadow-md mb-2"
+                        title={vid.title}
+                      >
+                        {vid.title}
+                      </h3>
+                      <div className="flex items-center gap-1.5">
+                        {/* Primary Action: Open Theater Player in New Tab */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openInPlayerTab(vid);
+                          }}
+                          title="Open clean theater player in new tab (ONLY video, zero ads)"
+                          className="flex-1 py-1.5 px-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-[11px] font-bold flex items-center justify-center gap-1 shadow-md shadow-purple-600/30 transition-all active:scale-95"
+                        >
+                          <Play className="w-3 h-3 fill-white" />
+                          <span>Play</span>
+                          <ExternalLink className="w-3 h-3 text-purple-200 ml-0.5" />
+                        </button>
+
+                        {/* Share / Copy Clean Player Link */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSharePlayerLink(vid);
+                          }}
+                          title="Copy clean player link (opens only video in new tab)"
+                          className="p-1.5 rounded-xl bg-white/[0.1] hover:bg-white/[0.2] border border-white/[0.15] text-zinc-300 hover:text-white transition-all active:scale-90"
+                        >
+                          {copiedId === vid.id ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                        </button>
+
+                        {/* In-Page Popup Modal Player */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedVideo(vid);
+                          }}
+                          title="Play in popup modal on this page"
+                          className="p-1.5 rounded-xl bg-white/[0.1] hover:bg-white/[0.2] border border-white/[0.15] text-zinc-300 hover:text-white transition-all active:scale-90"
+                        >
+                          <Tv className="w-3 h-3" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>

@@ -176,6 +176,50 @@ export function unpackPackedJs(packedCode: string): string | null {
 }
 
 /**
+ * Score stream quality: 4K (2160) > 2K (1440) > FHD (1080) > HD (720) > SD (480) > 360 > 240
+ */
+export function scoreStreamQuality(url: string, label?: string): number {
+  const combined = `${url} ${label || ''}`.toLowerCase();
+  if (combined.includes('2160') || combined.includes('4k')) return 2160;
+  if (combined.includes('1440') || combined.includes('2k')) return 1440;
+  if (combined.includes('1080') || combined.includes('fhd') || combined.includes('high') || combined.includes('setvideourlhigh')) return 1080;
+  if (combined.includes('720') || combined.includes('hd') || combined.includes('720p')) return 720;
+  if (combined.includes('480') || combined.includes('sd') || combined.includes('480p')) return 480;
+  if (combined.includes('360') || combined.includes('360p')) return 360;
+  if (combined.includes('240') || combined.includes('low') || combined.includes('setvideourllow')) return 240;
+  if (url.includes('.m3u8')) return 1000; // Multi-bitrate HLS master
+  return 500;
+}
+
+export function pickBestQualityStream(candidates: string[]): string | undefined {
+  if (!candidates.length) return undefined;
+  const sorted = [...candidates].sort((a, b) => scoreStreamQuality(b) - scoreStreamQuality(a));
+  return sorted[0];
+}
+
+/**
+ * Upgrades lower quality stream URLs (e.g. 360p, 480p, low) to highest quality (1080p, high)
+ */
+export function getHighestQualityRawUrl(url: string): string {
+  if (!url) return '';
+  let upgraded = url;
+  if (upgraded.includes('_360p.mp4')) upgraded = upgraded.replace('_360p.mp4', '_1080p.mp4');
+  else if (upgraded.includes('_480p.mp4')) upgraded = upgraded.replace('_480p.mp4', '_1080p.mp4');
+  else if (upgraded.includes('_720p.mp4')) upgraded = upgraded.replace('_720p.mp4', '_1080p.mp4');
+  else if (upgraded.includes('-360p.mp4')) upgraded = upgraded.replace('-360p.mp4', '-1080p.mp4');
+  else if (upgraded.includes('-480p.mp4')) upgraded = upgraded.replace('-480p.mp4', '-1080p.mp4');
+  else if (upgraded.includes('-720p.mp4')) upgraded = upgraded.replace('-720p.mp4', '-1080p.mp4');
+  else if (upgraded.includes('/360p/') && !upgraded.includes('/1080p/')) upgraded = upgraded.replace('/360p/', '/1080p/');
+  else if (upgraded.includes('/480p/') && !upgraded.includes('/1080p/')) upgraded = upgraded.replace('/480p/', '/1080p/');
+  else if (upgraded.includes('/720p/') && !upgraded.includes('/1080p/')) upgraded = upgraded.replace('/720p/', '/1080p/');
+  else if (upgraded.includes('/low/') && !upgraded.includes('/high/')) upgraded = upgraded.replace('/low/', '/high/');
+  else if (upgraded.includes('quality=360')) upgraded = upgraded.replace('quality=360', 'quality=1080');
+  else if (upgraded.includes('quality=480')) upgraded = upgraded.replace('quality=480', 'quality=1080');
+  else if (upgraded.includes('quality=720')) upgraded = upgraded.replace('quality=720', 'quality=1080');
+  return upgraded;
+}
+
+/**
  * Deep resolver for a single video page or iframe
  */
 export async function resolvePageStream(pageUrl: string, referer?: string): Promise<ResolvedStreamResult | null> {
@@ -209,7 +253,7 @@ export async function resolvePageStream(pageUrl: string, referer?: string): Prom
 
     const html = (await res.text()).slice(0, 3 * 1024 * 1024);
 
-    // 1. html5player setters (XNXX, XHamster, etc.)
+    // 1. html5player setters (XNXX, XHamster, etc.) - ALWAYS pick highest quality
     const highMatch = html.match(/html5player\.setVideoUrlHigh\(['"]([^'"]+)['"]\)/i);
     const hlsMatch = html.match(/html5player\.setVideoHLS\(['"]([^'"]+)['"]\)/i);
     const lowMatch = html.match(/html5player\.setVideoUrlLow\(['"]([^'"]+)['"]\)/i);
@@ -217,6 +261,7 @@ export async function resolvePageStream(pageUrl: string, referer?: string): Prom
     const titleMatch = html.match(/html5player\.setVideoTitle\(['"]([^'"]+)['"]\)/i);
 
     if (highMatch || hlsMatch || lowMatch) {
+      // Pick highest quality available: High MP4 1080p > HLS master > Low
       const rawStream = highMatch?.[1] || hlsMatch?.[1] || lowMatch?.[1];
       const stream = resolveUrl(rawStream!, finalUrl);
       if (stream) {
@@ -941,6 +986,42 @@ export function buildPagedUrl(baseUrl: string, page: number): string {
     return new URL(`${cleanPath}/page/${targetPage}/` + parsed.search, parsed.origin).href;
   } catch {
     return clean;
+  }
+}
+
+/**
+ * Universal Site & Section Search URL Builder
+ * Formulates live search URLs across video, tube, and adult streaming websites
+ */
+export function buildSiteSearchUrl(siteUrl: string, query: string, sectionUrl?: string): string {
+  const q = query.trim();
+  if (!q) return sectionUrl || siteUrl;
+
+  try {
+    const base = new URL(sectionUrl || siteUrl);
+    const host = base.hostname.toLowerCase();
+
+    if (host.includes('rule34video')) {
+      return `${base.origin}/search/${encodeURIComponent(q)}/`;
+    }
+    if (host.includes('xnxx')) {
+      return `${base.origin}/search/${encodeURIComponent(q)}`;
+    }
+    if (host.includes('hanime1')) {
+      return `${base.origin}/search?query=${encodeURIComponent(q)}`;
+    }
+    if (host.includes('hstream') || host.includes('henvids')) {
+      return `${base.origin}/search?q=${encodeURIComponent(q)}`;
+    }
+    if (sectionUrl && sectionUrl !== siteUrl && (base.pathname.includes('/category/') || base.pathname.includes('/tag/'))) {
+      const cleanPath = base.pathname.replace(/\/+$/, '');
+      return `${base.origin}${cleanPath}/?s=${encodeURIComponent(q)}`;
+    }
+
+    // Default universal WordPress / Video tube search: ?s=query
+    return `${base.origin}/?s=${encodeURIComponent(q)}`;
+  } catch {
+    return siteUrl;
   }
 }
 

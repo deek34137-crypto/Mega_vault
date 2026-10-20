@@ -28,8 +28,7 @@ import {
   Search,
   Maximize2,
   Volume2,
-} from 'lucide-react';
-import { buildPagedUrl } from '@/lib/extractor';
+import { buildPagedUrl, getHighestQualityRawUrl } from '@/lib/extractor';
 
 export interface ExtractedSection {
   id: string;
@@ -249,6 +248,21 @@ export default function ExtractorPage() {
       site: result?.pageTitle || '',
     });
     window.open(`/player?${params.toString()}`, '_blank', 'noopener,noreferrer');
+  }, [useProxy, result]);
+
+  const handleSharePlayerLink = useCallback((vid: ExtractedVideo) => {
+    const stream = (useProxy && vid.proxyStreamUrl) ? vid.proxyStreamUrl : vid.streamUrl;
+    const params = new URLSearchParams({
+      url: stream,
+      title: vid.title,
+      poster: vid.posterUrl || result?.posterUrl || '',
+      quality: vid.quality || '',
+      site: result?.pageTitle || '',
+    });
+    const shareableUrl = `${window.location.origin}/player?${params.toString()}`;
+    navigator.clipboard.writeText(shareableUrl);
+    setCopiedId(vid.id);
+    setTimeout(() => setCopiedId(null), 2500);
   }, [useProxy, result]);
 
   const playerMediaItem: MediaItem | null = selectedVideo
@@ -580,7 +594,7 @@ export default function ExtractorPage() {
                       onMouseEnter={() => setHoveredId(vid.id)}
                       onMouseLeave={() => setHoveredId(null)}
                       onClick={() => openInPlayerTab(vid)}
-                      className="group relative rounded-2xl overflow-hidden border border-white/[0.08] bg-zinc-950 cursor-pointer shadow-md hover:border-indigo-500/50 hover:shadow-2xl hover:shadow-indigo-500/20 transition-all duration-300"
+                      className="group relative rounded-2xl overflow-hidden border border-white/[0.08] bg-zinc-950 cursor-pointer shadow-md hover:border-indigo-500/50 hover:shadow-2xl hover:shadow-indigo-500/20 transition-all duration-300 w-full max-w-[280px] mx-auto"
                       style={{
                         transform: isHovered ? 'translateY(-3px) scale(1.015)' : 'none',
                       }}
@@ -607,35 +621,79 @@ export default function ExtractorPage() {
                           </span>
                         </div>
 
-                        {/* Hover Overlay: ONLY title and play video, nothing else */}
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/50 to-black/30 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-between p-3 z-20">
-                          <div />
-
-                          {/* Center: Play Icon */}
-                          <div className="self-center">
-                            <div className="w-12 h-12 rounded-full bg-indigo-600/90 group-hover:bg-indigo-500 text-white flex items-center justify-center shadow-xl shadow-indigo-600/50 transform group-hover:scale-110 transition-transform">
-                              <Play className="w-5 h-5 fill-white text-white translate-x-0.5" />
-                            </div>
+                        {/* Hover Overlay: Badges, Center Play, Title & Action Options */}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/50 to-black/30 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-between p-2.5 sm:p-3 z-20">
+                          {/* Top Row: Format & Quality Badge */}
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase font-mono tracking-wider bg-indigo-500/40 border border-indigo-500/50 text-indigo-200 shadow-md backdrop-blur-md">
+                              {vid.quality || (vid.streamUrl.includes('1080') ? '1080p FHD' : vid.streamUrl.includes('720') ? '720p HD' : vid.format.split(' ')[0])}
+                            </span>
+                            <span className="px-1.5 py-0.5 rounded-md bg-white/[0.1] text-[9px] font-mono text-zinc-300">
+                              {vid.source}
+                            </span>
                           </div>
 
-                          {/* Bottom: Title & Play Video Option ONLY */}
-                          <div>
-                            <h3
-                              className="text-xs font-bold text-white leading-tight line-clamp-2 drop-shadow-md mb-2.5"
-                              title={vid.title}
-                            >
-                              {vid.title}
-                            </h3>
-                            <button
+                          {/* Center: Play Icon (Click opens Theater Player in New Tab) */}
+                          <div className="self-center">
+                            <div
                               onClick={(e) => {
                                 e.stopPropagation();
                                 openInPlayerTab(vid);
                               }}
-                              className="w-full py-1.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-md shadow-indigo-600/40 transition-all"
+                              title="Open video in clean new tab"
+                              className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-indigo-600/90 group-hover:bg-indigo-500 text-white flex items-center justify-center shadow-lg shadow-indigo-600/50 transform group-hover:scale-110 transition-transform cursor-pointer"
                             >
-                              <Play className="w-3.5 h-3.5 fill-white" />
-                              <span>Play Video</span>
-                            </button>
+                              <Play className="w-4 h-4 sm:w-5 sm:h-5 fill-white text-white translate-x-0.5" />
+                            </div>
+                          </div>
+
+                          {/* Bottom: Title & Action Options */}
+                          <div>
+                            <h3
+                              className="text-[11px] sm:text-xs font-bold text-white leading-tight line-clamp-2 drop-shadow-md mb-2"
+                              title={vid.title}
+                            >
+                              {vid.title}
+                            </h3>
+                            <div className="flex items-center gap-1.5">
+                              {/* Primary Action: Open Theater Player in New Tab */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openInPlayerTab(vid);
+                                }}
+                                title="Open clean theater player in new tab (ONLY video, zero ads)"
+                                className="flex-1 py-1.5 px-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold flex items-center justify-center gap-1 shadow-md shadow-indigo-600/30 transition-all active:scale-95"
+                              >
+                                <Play className="w-3 h-3 fill-white" />
+                                <span>Play</span>
+                                <ExternalLink className="w-3 h-3 text-indigo-200 ml-0.5" />
+                              </button>
+
+                              {/* Share / Copy Clean Player Link */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleSharePlayerLink(vid);
+                                }}
+                                title="Copy clean player link (opens only video in new tab)"
+                                className="p-1.5 rounded-xl bg-white/[0.1] hover:bg-white/[0.2] border border-white/[0.15] text-zinc-300 hover:text-white transition-all active:scale-90"
+                              >
+                                {copiedId === vid.id ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                              </button>
+
+                              {/* In-Page Popup Modal Player */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedVideo(vid);
+                                }}
+                                title="Play in popup modal on this page"
+                                className="p-1.5 rounded-xl bg-white/[0.1] hover:bg-white/[0.2] border border-white/[0.15] text-zinc-300 hover:text-white transition-all active:scale-90"
+                              >
+                                <Tv className="w-3 h-3" />
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </div>

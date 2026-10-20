@@ -1520,6 +1520,61 @@ export async function saveSiteVideos(
   }
 }
 
+export async function appendSiteVideos(
+  siteId: string,
+  videos: Omit<SavedSiteVideo, 'site_id'>[]
+): Promise<void> {
+  if (videos.length === 0) return;
+
+  const client = getTursoClient();
+  if (client) {
+    try {
+      await ensureTursoSchema(client);
+      for (const v of videos) {
+        const uniqueId = v.id.startsWith(siteId) ? v.id : `${siteId}_${v.id}`;
+        await client.execute({
+          sql: `INSERT OR REPLACE INTO saved_site_videos (id, site_id, title, stream_url, proxy_stream_url, poster_url, format, mime_type, source, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [uniqueId, siteId, v.title, v.stream_url, v.proxy_stream_url || null, v.poster_url || null, v.format, v.mime_type, v.source || 'html5', v.created_at],
+        });
+      }
+      const countRes = await client.execute({
+        sql: 'SELECT COUNT(*) as count FROM saved_site_videos WHERE site_id = ?',
+        args: [siteId],
+      });
+      const newCount = Number(countRes.rows[0]?.count || 0);
+      await client.execute({
+        sql: `UPDATE saved_sites SET video_count = ?, updated_at = ? WHERE id = ?`,
+        args: [newCount, new Date().toISOString(), siteId],
+      });
+    } catch (e) {
+      console.error('[MegaVault] Turso appendSiteVideos error:', e);
+    }
+  }
+
+  try {
+    const db = getLocalDb();
+    const insertStmt = db.prepare(`
+      INSERT OR REPLACE INTO saved_site_videos (id, site_id, title, stream_url, proxy_stream_url, poster_url, format, mime_type, source, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const updateCountStmt = db.prepare(`
+      UPDATE saved_sites SET video_count = (SELECT COUNT(*) FROM saved_site_videos WHERE site_id = ?), updated_at = ? WHERE id = ?
+    `);
+
+    const transaction = db.transaction(() => {
+      for (const v of videos) {
+        const uniqueId = v.id.startsWith(siteId) ? v.id : `${siteId}_${v.id}`;
+        insertStmt.run(uniqueId, siteId, v.title, v.stream_url, v.proxy_stream_url || null, v.poster_url || null, v.format, v.mime_type, v.source || 'html5', v.created_at);
+      }
+      updateCountStmt.run(siteId, new Date().toISOString(), siteId);
+    });
+    transaction();
+  } catch (e) {
+    console.error('[MegaVault] Local DB appendSiteVideos error:', e);
+  }
+}
+
 export async function getAllSavedSiteVideos(searchQuery?: string, siteId?: string): Promise<SavedSiteVideo[]> {
   let videos: SavedSiteVideo[] = [];
   const q = searchQuery ? searchQuery.trim().toLowerCase() : '';
