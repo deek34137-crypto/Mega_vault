@@ -17,10 +17,21 @@ import {
   ChevronLeft,
   ChevronRight,
   Star,
+  Subtitles,
+  Tv,
+  PictureInPicture,
+  Upload,
+  FileText,
 } from 'lucide-react';
 import { formatBytes, formatDuration } from '@/lib/utils/cn';
 import { MediaItem } from '@/types';
 import Hls from 'hls.js';
+
+function convertSrtToVtt(srt: string): string {
+  const normalized = srt.trim().replace(/\r\n|\r/g, '\n');
+  const converted = normalized.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
+  return `WEBVTT\n\n${converted}`;
+}
 
 interface VideoPlayerProps {
   media: MediaItem;
@@ -43,7 +54,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
 
   const [isPlaying, setIsPlaying] = useState(true);
-  const [isBuffering, setIsBuffering] = useState(true);
+  const [isBuffering, setIsBuffering] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -57,6 +68,91 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const touchStartY = useRef<number | null>(null);
   const capturedRef = useRef<boolean>(false);
 
+  // Captions & Subtitles States
+  const [showCaptions, setShowCaptions] = useState(false);
+  const [subtitleUrl, setSubtitleUrl] = useState<string | null>(null);
+  const [isCaptionModalOpen, setIsCaptionModalOpen] = useState(false);
+  const [captionInputUrl, setCaptionInputUrl] = useState('');
+
+  // TV / 10-foot UI Mode
+  const [isTvMode, setIsTvMode] = useState(false);
+
+  // Smooth debounced buffering check (eliminates 2-3x/sec strobe buffering spinner)
+  const bufferingTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const startBufferingCheck = useCallback(() => {
+    if (bufferingTimerRef.current) clearTimeout(bufferingTimerRef.current);
+    bufferingTimerRef.current = setTimeout(() => {
+      if (videoRef.current && !videoRef.current.paused && videoRef.current.readyState < 3) {
+        setIsBuffering(true);
+      }
+    }, 450);
+  }, []);
+
+  const stopBuffering = useCallback(() => {
+    if (bufferingTimerRef.current) {
+      clearTimeout(bufferingTimerRef.current);
+      bufferingTimerRef.current = null;
+    }
+    setIsBuffering(false);
+  }, []);
+
+  const toggleCaptions = useCallback(() => {
+    if (!subtitleUrl) {
+      setIsCaptionModalOpen(true);
+    } else {
+      setShowCaptions((prev) => !prev);
+    }
+  }, [subtitleUrl]);
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      if (!text) return;
+      const vtt = file.name.endsWith('.srt') ? convertSrtToVtt(text) : text;
+      const blob = new Blob([vtt], { type: 'text/vtt' });
+      setSubtitleUrl(URL.createObjectURL(blob));
+      setShowCaptions(true);
+      setIsCaptionModalOpen(false);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleApplyCaptionUrl = async (url: string) => {
+    if (!url.trim()) return;
+    try {
+      const res = await fetch(url.trim());
+      if (res.ok) {
+        const text = await res.text();
+        const vtt = url.includes('.srt') ? convertSrtToVtt(text) : text;
+        const blob = new Blob([vtt], { type: 'text/vtt' });
+        setSubtitleUrl(URL.createObjectURL(blob));
+        setShowCaptions(true);
+        setIsCaptionModalOpen(false);
+        return;
+      }
+    } catch {}
+    setSubtitleUrl(url.trim());
+    setShowCaptions(true);
+    setIsCaptionModalOpen(false);
+  };
+
+  const togglePiP = useCallback(async () => {
+    if (!videoRef.current) return;
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+      } else if (document.pictureInPictureEnabled) {
+        await videoRef.current.requestPictureInPicture();
+      }
+    } catch (err) {
+      console.warn('PiP error:', err);
+    }
+  }, []);
+
   const changeSpeed = useCallback((speed: number) => {
     setPlaybackRate(speed);
     if (videoRef.current) {
@@ -69,7 +165,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setHasError(false);
   }, [media.id]);
 
-  // Support HLS (.m3u8) playback with adaptive high-definition streaming
+  // Support HLS (.m3u8) playback with adaptive high-definition streaming & smooth buffer
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !media.streamUrl) return;
@@ -82,8 +178,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (isHls && Hls.isSupported()) {
       hlsInstance = new Hls({
         enableWorker: true,
-        lowLatencyMode: true,
-        capLevelToPlayerSize: false, // Ensure full 1080p / highest bitrate is allowed
+        lowLatencyMode: false, // Critical: disable low-latency mode for smooth VOD playback without stalls
+        backBufferLength: 60,
+        maxBufferLength: 60,
+        maxMaxBufferLength: 120,
+        maxBufferSize: 60 * 1024 * 1024,
+        maxBufferHole: 0.5,
+        highBufferWatchdogPeriod: 2,
+        capLevelToPlayerSize: false,
       });
 
       hlsInstance.loadSource(stream);
@@ -239,32 +341,39 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
   }, []);
 
-  // Keyboard Shortcuts Handler
+  // Keyboard & TV Remote Shortcuts Handler
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return;
 
-      switch (e.code) {
+      const key = e.code || e.key;
+
+      switch (key) {
         case 'Space':
         case 'KeyK':
+        case 'MediaPlayPause':
+        case 'MediaPlay':
+        case 'MediaPause':
           e.preventDefault();
           togglePlay();
           break;
         case 'ArrowRight':
           e.preventDefault();
-          seek(5);
+          seek(10);
           break;
         case 'ArrowLeft':
           e.preventDefault();
-          seek(-5);
+          seek(-10);
           break;
+        case 'MediaFastForward':
         case 'KeyL':
           e.preventDefault();
-          seek(10);
+          seek(15);
           break;
+        case 'MediaRewind':
         case 'KeyJ':
           e.preventDefault();
-          seek(-10);
+          seek(-15);
           break;
         case 'ArrowUp':
           e.preventDefault();
@@ -282,15 +391,40 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           e.preventDefault();
           toggleFullscreen();
           break;
+        case 'KeyC':
+          e.preventDefault();
+          toggleCaptions();
+          break;
+        case 'KeyP':
+          e.preventDefault();
+          togglePiP();
+          break;
+        case 'KeyT':
+          e.preventDefault();
+          setIsTvMode((prev) => !prev);
+          break;
+        case 'Enter':
+        case 'NumpadEnter':
+        case 'Select':
+          if (document.activeElement === document.body || document.activeElement === containerRef.current) {
+            e.preventDefault();
+            togglePlay();
+          }
+          break;
         case 'Escape':
-          onClose();
+        case 'Backspace':
+        case 'BrowserBack':
+        case 'GoBack':
+          if (!isCaptionModalOpen) {
+            onClose();
+          }
           break;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [togglePlay, seek, adjustVolume, toggleMute, toggleFullscreen, onClose]);
+  }, [togglePlay, seek, adjustVolume, toggleMute, toggleFullscreen, toggleCaptions, togglePiP, isCaptionModalOpen, onClose]);
 
   return (
     <div
@@ -298,37 +432,41 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       onMouseMove={handleMouseMove}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 backdrop-blur-2xl select-none"
+      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/95 backdrop-blur-2xl select-none ${
+        isTvMode ? 'tv-mode text-lg' : ''
+      }`}
     >
-      {/* HTML5 Video Element */}
+      {/* HTML5 Video Element with AirPlay & Casting support */}
       <video
         ref={videoRef}
         autoPlay
         playsInline
-        preload="metadata"
+        preload="auto"
+        controlsList="nodownload"
+        x-webkit-airplay="allow"
         onClick={togglePlay}
         onPlay={() => {
           setIsPlaying(true);
-          setIsBuffering(false);
+          stopBuffering();
           if (videoRef.current && playbackRate !== 1) {
             videoRef.current.playbackRate = playbackRate;
           }
         }}
         onPause={() => setIsPlaying(false)}
-        onWaiting={() => setIsBuffering(true)}
+        onWaiting={startBufferingCheck}
         onPlaying={() => {
-          setIsBuffering(false);
+          stopBuffering();
           if (videoRef.current && playbackRate !== 1) {
             videoRef.current.playbackRate = playbackRate;
           }
           captureThumbnail();
         }}
-        onSeeking={() => setIsBuffering(true)}
-        onSeeked={() => setIsBuffering(false)}
-        onCanPlay={() => setIsBuffering(false)}
-        onCanPlayThrough={() => setIsBuffering(false)}
+        onSeeking={startBufferingCheck}
+        onSeeked={stopBuffering}
+        onCanPlay={stopBuffering}
+        onCanPlayThrough={stopBuffering}
         onLoadedData={() => {
-          setIsBuffering(false);
+          stopBuffering();
           captureThumbnail();
         }}
         onTimeUpdate={() => {
@@ -365,7 +503,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           setHasError(true);
         }}
         className="max-h-screen w-full object-contain cursor-pointer"
-      />
+      >
+        {subtitleUrl && showCaptions && (
+          <track
+            kind="subtitles"
+            src={subtitleUrl}
+            srcLang="en"
+            label="English"
+            default
+          />
+        )}
+      </video>
 
       {/* Video Error / Session Expired Banner */}
       {hasError && (
@@ -463,6 +611,65 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+          {/* Subtitles / Captions Button */}
+          <div className="relative flex items-center">
+            <button
+              onClick={toggleCaptions}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setIsCaptionModalOpen(true);
+              }}
+              title={
+                showCaptions
+                  ? "Subtitles: ON (Click to toggle, right-click for settings) (C)"
+                  : subtitleUrl
+                  ? "Subtitles: OFF (Click to turn on, right-click for settings) (C)"
+                  : "Subtitles / Closed Captions (C)"
+              }
+              className={`p-2 sm:p-2.5 rounded-full border transition-all focus-visible:ring-4 focus-visible:ring-purple-400 ${
+                showCaptions && subtitleUrl
+                  ? 'bg-purple-600 text-white border-purple-400 shadow-md shadow-purple-600/30'
+                  : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-700/70'
+              }`}
+            >
+              <Subtitles className="w-4 h-4 sm:w-5 sm:h-5" />
+            </button>
+            {subtitleUrl && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsCaptionModalOpen(true);
+                }}
+                title="Subtitle Settings"
+                className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-zinc-800 hover:bg-purple-600 text-zinc-300 hover:text-white border border-zinc-600 flex items-center justify-center text-[9px] font-bold shadow"
+              >
+                ⚙
+              </button>
+            )}
+          </div>
+
+          {/* TV Big Screen 10-foot Mode Toggle */}
+          <button
+            onClick={() => setIsTvMode((prev) => !prev)}
+            title={isTvMode ? "Exit TV Mode (T)" : "TV Big Screen Mode (T)"}
+            className={`p-2 sm:p-2.5 rounded-full border transition-all focus-visible:ring-4 focus-visible:ring-purple-400 ${
+              isTvMode
+                ? 'bg-indigo-600 text-white border-indigo-400 shadow-md shadow-indigo-600/30 ring-2 ring-indigo-400/50'
+                : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-700/70'
+            }`}
+          >
+            <Tv className="w-4 h-4 sm:w-5 sm:h-5" />
+          </button>
+
+          {/* Picture-in-Picture */}
+          <button
+            onClick={togglePiP}
+            title="Picture-in-Picture (P)"
+            className="p-2 sm:p-2.5 rounded-full bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-700/70 transition-all focus-visible:ring-4 focus-visible:ring-purple-400"
+          >
+            <PictureInPicture className="w-4 h-4 sm:w-5 sm:h-5" />
+          </button>
+
           {/* Favorite Button */}
           <button
             onClick={async (e) => {
@@ -611,6 +818,104 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Subtitles & Captions Settings Modal */}
+      {isCaptionModalOpen && (
+        <div 
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsCaptionModalOpen(false);
+          }}
+          className="absolute inset-0 flex items-center justify-center z-50 bg-black/85 backdrop-blur-md p-4 animate-fadeIn"
+        >
+          <div className="max-w-md w-full glass-panel p-6 rounded-3xl border border-zinc-700/80 shadow-2xl relative text-left">
+            <button
+              onClick={() => setIsCaptionModalOpen(false)}
+              className="absolute top-4 right-4 p-2 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-all"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-2xl bg-purple-500/20 border border-purple-500/30 flex items-center justify-center text-purple-400">
+                <Subtitles className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-white">Subtitles & Closed Captions</h3>
+                <p className="text-[11px] text-zinc-400">Stream or upload external WebVTT (.vtt) or SubRip (.srt) subtitles</p>
+              </div>
+            </div>
+
+            {/* Current Subtitle Status */}
+            {subtitleUrl && (
+              <div className="mb-4 p-3 rounded-2xl bg-purple-950/40 border border-purple-500/30 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="text-xs font-semibold text-purple-200">
+                    Track Loaded ({showCaptions ? 'Visible' : 'Hidden'})
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowCaptions((prev) => !prev)}
+                    className="text-[11px] px-2.5 py-1 rounded-lg bg-purple-600/70 hover:bg-purple-600 text-white font-medium transition-colors"
+                  >
+                    {showCaptions ? 'Hide Captions' : 'Show Captions'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSubtitleUrl(null);
+                      setShowCaptions(false);
+                    }}
+                    className="text-[11px] px-2.5 py-1 rounded-lg bg-red-600/40 hover:bg-red-600 text-red-200 font-medium transition-colors"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Paste Subtitle URL */}
+            <div className="space-y-1.5 mb-4">
+              <label className="text-xs font-semibold text-zinc-300">Subtitle Stream / VTT / SRT URL</label>
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  placeholder="https://example.com/subtitles.vtt"
+                  value={captionInputUrl}
+                  onChange={(e) => setCaptionInputUrl(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleApplyCaptionUrl(captionInputUrl);
+                    }
+                  }}
+                  className="flex-1 bg-zinc-900 border border-zinc-700/80 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-purple-500 transition-colors"
+                />
+                <button
+                  onClick={() => handleApplyCaptionUrl(captionInputUrl)}
+                  className="px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold shadow-md shadow-purple-600/30 transition-all"
+                >
+                  Apply
+                </button>
+              </div>
+            </div>
+
+            {/* Or Upload File */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-zinc-300">Or Upload Subtitle File (.srt or .vtt)</label>
+              <label className="flex items-center justify-center gap-2.5 p-3.5 rounded-xl border border-dashed border-zinc-700/80 hover:border-purple-500/80 bg-zinc-900/60 hover:bg-purple-950/20 cursor-pointer transition-all group">
+                <Upload className="w-4 h-4 text-purple-400 group-hover:scale-110 transition-transform" />
+                <span className="text-xs font-medium text-zinc-300 group-hover:text-purple-200">Select file from device (.vtt, .srt)</span>
+                <input
+                  type="file"
+                  accept=".vtt,.srt,text/vtt,application/x-subrip"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+              </label>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

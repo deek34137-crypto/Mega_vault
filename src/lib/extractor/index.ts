@@ -4,6 +4,7 @@ export interface ExtractedVideoItem {
   streamUrl: string;
   proxyStreamUrl: string;
   posterUrl?: string;
+  quality?: string;
   mimeType: string;
   format: string;
   source: 'direct' | 'html5' | 'opengraph' | 'jsonld' | 'script' | 'link' | 'channel-card' | 'iframe';
@@ -1064,6 +1065,11 @@ export async function extractVideosFromUrl(targetUrl: string): Promise<Extractio
     const id = Buffer.from(streamUrl).toString('base64url').slice(0, 16);
     const refererToUse = customReferer || finalUrl;
     const proxyStreamUrl = `/api/tools/proxy-stream?url=${encodeURIComponent(streamUrl)}&referer=${encodeURIComponent(refererToUse)}`;
+    const quality =
+      streamUrl.includes('1080') ? '1080p FHD' :
+      streamUrl.includes('720') ? '720p HD' :
+      streamUrl.includes('480') ? '480p SD' :
+      streamUrl.includes('hls') || streamUrl.endsWith('.m3u8') ? 'Auto HLS' : undefined;
 
     extractedVideos.push({
       id,
@@ -1071,6 +1077,7 @@ export async function extractVideosFromUrl(targetUrl: string): Promise<Extractio
       streamUrl,
       proxyStreamUrl,
       posterUrl,
+      quality,
       mimeType,
       format,
       source,

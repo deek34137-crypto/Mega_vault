@@ -43,6 +43,7 @@ export interface ExtractedVideo {
   streamUrl: string;
   proxyStreamUrl: string;
   posterUrl?: string;
+  quality?: string;
   mimeType: string;
   format: string;
   source: 'direct' | 'html5' | 'opengraph' | 'jsonld' | 'script' | 'link' | 'channel-card' | 'iframe';
