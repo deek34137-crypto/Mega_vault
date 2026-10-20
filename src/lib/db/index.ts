@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { createClient, Client } from '@libsql/client';
+import { createClient, type Client } from '@libsql/client';
 import path from 'path';
 import crypto from 'crypto';
 
