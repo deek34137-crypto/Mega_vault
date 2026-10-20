@@ -1477,10 +1477,11 @@ export async function saveSiteVideos(
       await ensureTursoSchema(client);
       await client.execute({ sql: 'DELETE FROM saved_site_videos WHERE site_id = ?', args: [siteId] });
       for (const v of videos) {
+        const uniqueId = v.id.startsWith(siteId) ? v.id : `${siteId}_${v.id}`;
         await client.execute({
-          sql: `INSERT INTO saved_site_videos (id, site_id, title, stream_url, proxy_stream_url, poster_url, format, mime_type, source, created_at)
+          sql: `INSERT OR REPLACE INTO saved_site_videos (id, site_id, title, stream_url, proxy_stream_url, poster_url, format, mime_type, source, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          args: [v.id, siteId, v.title, v.stream_url, v.proxy_stream_url || null, v.poster_url || null, v.format, v.mime_type, v.source || 'html5', v.created_at],
+          args: [uniqueId, siteId, v.title, v.stream_url, v.proxy_stream_url || null, v.poster_url || null, v.format, v.mime_type, v.source || 'html5', v.created_at],
         });
       }
       await client.execute({
@@ -1496,7 +1497,7 @@ export async function saveSiteVideos(
     const db = getLocalDb();
     const deleteStmt = db.prepare('DELETE FROM saved_site_videos WHERE site_id = ?');
     const insertStmt = db.prepare(`
-      INSERT INTO saved_site_videos (id, site_id, title, stream_url, proxy_stream_url, poster_url, format, mime_type, source, created_at)
+      INSERT OR REPLACE INTO saved_site_videos (id, site_id, title, stream_url, proxy_stream_url, poster_url, format, mime_type, source, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
@@ -1507,7 +1508,8 @@ export async function saveSiteVideos(
     const transaction = db.transaction(() => {
       deleteStmt.run(siteId);
       for (const v of videos) {
-        insertStmt.run(v.id, siteId, v.title, v.stream_url, v.proxy_stream_url || null, v.poster_url || null, v.format, v.mime_type, v.source || 'html5', v.created_at);
+        const uniqueId = v.id.startsWith(siteId) ? v.id : `${siteId}_${v.id}`;
+        insertStmt.run(uniqueId, siteId, v.title, v.stream_url, v.proxy_stream_url || null, v.poster_url || null, v.format, v.mime_type, v.source || 'html5', v.created_at);
       }
       updateSiteStmt.run(videos.length, posterUrl || null, sectionsJson, new Date().toISOString(), siteId);
     });

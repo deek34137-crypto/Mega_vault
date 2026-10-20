@@ -1,3 +1,5 @@
+import crypto from 'crypto';
+
 export interface ExtractedVideoItem {
   id: string;
   title: string;
@@ -8,6 +10,11 @@ export interface ExtractedVideoItem {
   mimeType: string;
   format: string;
   source: 'direct' | 'html5' | 'opengraph' | 'jsonld' | 'script' | 'link' | 'channel-card' | 'iframe';
+}
+
+export function generateHashId(prefix: string, input: string): string {
+  const hash = crypto.createHash('sha256').update(input).digest('hex').slice(0, 16);
+  return `${prefix}_${hash}`;
 }
 
 export interface ExtractedSection {
@@ -815,7 +822,7 @@ export function extractSiteSections(html: string, baseUrl: string): ExtractedSec
 
     seenUrls.add(cleanUrl);
     seenNames.add(lowerLabel);
-    const id = 'sec_' + Buffer.from(cleanUrl).toString('base64url').slice(0, 10);
+    const id = generateHashId('sec', cleanUrl);
     sections.push({
       id,
       name: formattedLabel,
@@ -956,7 +963,7 @@ export async function extractVideosFromUrl(targetUrl: string): Promise<Extractio
   if (isDirectVideo) {
     const fileName = parsedTarget.pathname.split('/').pop()?.split('?')[0] || 'Direct Stream';
     const { format, mimeType } = getFormatAndMime(cleanUrl);
-    const videoId = Buffer.from(cleanUrl).toString('base64url').slice(0, 16);
+    const videoId = generateHashId('vid', cleanUrl);
     const proxyStreamUrl = `/api/tools/proxy-stream?url=${encodeURIComponent(cleanUrl)}&referer=${encodeURIComponent(cleanUrl)}`;
 
     return {
@@ -1062,7 +1069,7 @@ export async function extractVideosFromUrl(targetUrl: string): Promise<Extractio
 
     const posterUrl = rawPoster ? resolveUrl(rawPoster, finalUrl) || mainPoster : mainPoster;
     const { format, mimeType } = getFormatAndMime(streamUrl);
-    const id = Buffer.from(streamUrl).toString('base64url').slice(0, 16);
+    const id = generateHashId('vid', streamUrl);
     const refererToUse = customReferer || finalUrl;
     const proxyStreamUrl = `/api/tools/proxy-stream?url=${encodeURIComponent(streamUrl)}&referer=${encodeURIComponent(refererToUse)}`;
     const quality =

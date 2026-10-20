@@ -301,27 +301,71 @@ export default function SavedSitesPage() {
     }
   };
 
+  // Total indexed video count across all saved channels
+  const totalIndexedCount = useMemo(() => {
+    return sites.reduce((sum, s) => sum + (s.video_count || 0), 0);
+  }, [sites]);
+
+  // Clean sections strictly matching the current site's root domain (prevents third-party ad links from showing as sections)
+  const siteSections = useMemo(() => {
+    if (!currentSite?.sections || currentSite.sections.length === 0) return [];
+    try {
+      const baseHost = new URL(currentSite.url).hostname.toLowerCase().replace(/^www\./, '');
+      return currentSite.sections.filter((s) => {
+        if (s.id === 'home') return true;
+        try {
+          const secHost = new URL(s.url).hostname.toLowerCase().replace(/^www\./, '');
+          return secHost === baseHost || secHost.endsWith('.' + baseHost);
+        } catch {
+          return false;
+        }
+      });
+    } catch {
+      return currentSite.sections;
+    }
+  }, [currentSite]);
+
+  // Active videos for the current channel (taking into account browsed sections/pages)
   const activeVideoList = useMemo(() => {
     if (!currentSite) return videos;
+
     if (activeSectionUrl || currentPage > 1) {
       const targetUrl = activeSectionUrl || currentSite.url;
       const cacheKey = `${currentSite.id}_${targetUrl}_${currentPage}`;
-      if (sectionVideosMap[cacheKey]) return sectionVideosMap[cacheKey];
+      if (sectionVideosMap[cacheKey] && sectionVideosMap[cacheKey].length > 0) {
+        return sectionVideosMap[cacheKey].filter((v) => v.site_id === currentSite.id);
+      }
     }
+
     return videos.filter((v) => v.site_id === currentSite.id);
   }, [currentSite, activeSectionUrl, currentPage, sectionVideosMap, videos]);
 
+  // Search Filtering:
+  // - If a specific channel is selected: ONLY search within that channel
+  // - If All Channels is selected: search across all channels
   const filteredVideos = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    const baseList = selectedSiteId ? activeVideoList : videos;
-    if (!q) return baseList;
-    return baseList.filter((v) => {
+
+    // 1. Specific Channel Selected -> SEARCH ONLY IN THIS CHANNEL
+    if (selectedSiteId && currentSite) {
+      const siteVideos = activeVideoList.filter((v) => v.site_id === currentSite.id);
+      if (!q) return siteVideos;
+      return siteVideos.filter((v) => {
+        const titleMatch = v.title.toLowerCase().includes(q);
+        const formatMatch = v.format.toLowerCase().includes(q);
+        return titleMatch || formatMatch;
+      });
+    }
+
+    // 2. All Channels Selected -> SEARCH ACROSS ALL SITES
+    if (!q) return videos;
+    return videos.filter((v) => {
       const titleMatch = v.title.toLowerCase().includes(q);
       const nicknameMatch = v.site_nickname ? v.site_nickname.toLowerCase().includes(q) : false;
       const formatMatch = v.format.toLowerCase().includes(q);
       return titleMatch || nicknameMatch || formatMatch;
     });
-  }, [selectedSiteId, activeVideoList, videos, searchQuery]);
+  }, [selectedSiteId, currentSite, activeVideoList, videos, searchQuery]);
 
   const handleCopyLink = (id: string, url: string) => {
     navigator.clipboard.writeText(url);
@@ -453,7 +497,11 @@ export default function SavedSitesPage() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search across all channels, video titles, and formats..."
+            placeholder={
+              selectedSiteId && currentSite
+                ? `Search only within "${currentSite.nickname}"...`
+                : `Search across all ${totalIndexedCount || videos.length} videos from ${sites.length} channels...`
+            }
             className="w-full bg-white/[0.04] border border-white/[0.07] rounded-2xl pl-11 pr-10 py-3.5 text-sm text-zinc-200 placeholder-zinc-700 focus:outline-none focus:border-purple-500/50 transition-all backdrop-blur-sm"
           />
           {searchQuery && (
@@ -497,7 +545,7 @@ export default function SavedSitesPage() {
               <Globe className="w-3.5 h-3.5" />
               <span>All Channels</span>
               <span className="font-mono text-[10px] px-1.5 py-0.5 rounded-md bg-black/40 text-zinc-400">
-                {videos.length}
+                {totalIndexedCount || videos.length}
               </span>
             </button>
 
@@ -595,8 +643,8 @@ export default function SavedSitesPage() {
               Homepage
             </button>
 
-            {currentSite.sections && currentSite.sections.length > 0 ? (
-              currentSite.sections
+            {siteSections && siteSections.length > 0 ? (
+              siteSections
                 .filter((s) => s.id !== 'home')
                 .map((sec) => (
                   <button
@@ -626,7 +674,11 @@ export default function SavedSitesPage() {
           <Film className="w-4 h-4 text-purple-400" />
           <h2 className="text-sm font-bold text-white uppercase tracking-widest">
             {selectedSiteId
-              ? `${currentSite?.nickname || 'Channel'} — Page ${currentPage}`
+              ? searchQuery
+                ? `${currentSite?.nickname} — Search "${searchQuery}"`
+                : `${currentSite?.nickname} — Page ${currentPage}`
+              : searchQuery
+              ? `All Channels — Search "${searchQuery}"`
               : 'All Indexed Streams'}
           </h2>
           <span className="text-xs text-zinc-700 font-mono">({filteredVideos.length})</span>
@@ -652,11 +704,19 @@ export default function SavedSitesPage() {
             <Globe className="w-7 h-7 text-purple-500/50" />
           </div>
           <h3 className="text-base font-bold text-white mb-2">
-            {searchQuery ? 'No Matching Streams' : sites.length === 0 ? 'No Channels Yet' : 'No Videos Here'}
+            {searchQuery
+              ? selectedSiteId
+                ? `No matching videos in "${currentSite?.nickname}"`
+                : `No streams match "${searchQuery}"`
+              : sites.length === 0
+              ? 'No Channels Yet'
+              : 'No Videos Here'}
           </h3>
           <p className="text-xs text-zinc-600 max-w-sm mx-auto mb-6 leading-relaxed">
             {searchQuery
-              ? `No stream matched "${searchQuery}".`
+              ? selectedSiteId
+                ? `No videos inside "${currentSite?.nickname}" matched "${searchQuery}". Try searching across All Channels.`
+                : `No stream matched "${searchQuery}". Try a different keyword.`
               : sites.length === 0
               ? 'Add your first website channel to start browsing ad-free.'
               : 'Try another section or page, or refresh the channel.'}
@@ -670,12 +730,23 @@ export default function SavedSitesPage() {
               <span>Add First Channel</span>
             </button>
           ) : searchQuery ? (
-            <button
-              onClick={() => setSearchQuery('')}
-              className="px-5 py-2.5 rounded-2xl bg-white/[0.06] hover:bg-white/[0.09] border border-white/[0.08] text-white text-xs font-semibold transition-all"
-            >
-              Clear Search
-            </button>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+              <button
+                onClick={() => setSearchQuery('')}
+                className="px-5 py-2.5 rounded-2xl bg-white/[0.06] hover:bg-white/[0.09] border border-white/[0.08] text-white text-xs font-semibold transition-all"
+              >
+                Clear Search
+              </button>
+              {selectedSiteId && (
+                <button
+                  onClick={() => handleSelectSite(null)}
+                  className="px-5 py-2.5 rounded-2xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-all inline-flex items-center gap-1.5 shadow-lg shadow-purple-600/30"
+                >
+                  <Search className="w-3.5 h-3.5" />
+                  <span>Search across All Channels</span>
+                </button>
+              )}
+            </div>
           ) : null}
         </div>
       ) : (
