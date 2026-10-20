@@ -615,79 +615,42 @@ export default function ExtractorPage() {
                           </span>
                         </div>
 
-                        {/* Hover Overlay: Badges, Center Play, Title & Action Options */}
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/50 to-black/30 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-between p-2.5 sm:p-3 z-20">
-                          {/* Top Row: Format & Quality Badge */}
-                          <div className="flex items-center justify-between gap-1">
-                            <span className="px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase font-mono tracking-wider bg-indigo-500/40 border border-indigo-500/50 text-indigo-200 shadow-md backdrop-blur-md">
-                              {vid.quality || (vid.streamUrl.includes('1080') ? '1080p FHD' : vid.streamUrl.includes('720') ? '720p HD' : vid.format.split(' ')[0])}
-                            </span>
-                            <span className="px-1.5 py-0.5 rounded-md bg-white/[0.1] text-[9px] font-mono text-zinc-300">
-                              {vid.source}
-                            </span>
-                          </div>
+                        {/* Hover Overlay: Center Play, Title & Play Now (Clean & Fits Perfectly) */}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/50 to-black/30 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-between p-2 z-20">
+                          <div />
 
-                          {/* Center: Play Icon (Click opens Theater Player in New Tab) */}
+                          {/* Center: Smaller Compact Play Icon */}
                           <div className="self-center">
                             <div
                               onClick={(e) => {
                                 e.stopPropagation();
                                 openInPlayerTab(vid);
                               }}
-                              title="Open video in clean new tab"
-                              className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-indigo-600/90 group-hover:bg-indigo-500 text-white flex items-center justify-center shadow-lg shadow-indigo-600/50 transform group-hover:scale-110 transition-transform cursor-pointer"
+                              title="Play video"
+                              className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-indigo-600/90 group-hover:bg-indigo-500 text-white flex items-center justify-center shadow-md shadow-indigo-600/40 transform group-hover:scale-110 transition-transform cursor-pointer"
                             >
-                              <Play className="w-4 h-4 sm:w-5 sm:h-5 fill-white text-white translate-x-0.5" />
+                              <Play className="w-3.5 h-3.5 fill-white text-white translate-x-0.5" />
                             </div>
                           </div>
 
-                          {/* Bottom: Title & Action Options */}
+                          {/* Bottom: Title & Play Now Option (Fits without overflow) */}
                           <div>
                             <h3
-                              className="text-[11px] sm:text-xs font-bold text-white leading-tight line-clamp-2 drop-shadow-md mb-2"
+                              className="text-[11px] font-bold text-white leading-tight line-clamp-1 drop-shadow mb-1"
                               title={vid.title}
                             >
                               {vid.title}
                             </h3>
-                            <div className="flex items-center gap-1.5">
-                              {/* Primary Action: Open Raw Video in New Tab (0 Buffering) */}
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openInPlayerTab(vid);
-                                }}
-                                title="Open RAW direct stream URL in new tab (ONLY video, 0 buffering)"
-                                className="flex-1 py-1.5 px-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold flex items-center justify-center gap-1 shadow-md shadow-indigo-600/30 transition-all active:scale-95"
-                              >
-                                <Play className="w-3 h-3 fill-white" />
-                                <span>0 Buffering</span>
-                                <ExternalLink className="w-3 h-3 text-indigo-200 ml-0.5" />
-                              </button>
-
-                              {/* Share / Copy Raw Video URL */}
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleSharePlayerLink(vid);
-                                }}
-                                title="Copy direct RAW video URL (0 buffering)"
-                                className="p-1.5 rounded-xl bg-white/[0.1] hover:bg-white/[0.2] border border-white/[0.15] text-zinc-300 hover:text-white transition-all active:scale-90"
-                              >
-                                {copiedId === vid.id ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                              </button>
-
-                              {/* In-Page Popup Modal Player */}
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedVideo(vid);
-                                }}
-                                title="Play in popup modal on this page"
-                                className="p-1.5 rounded-xl bg-white/[0.1] hover:bg-white/[0.2] border border-white/[0.15] text-zinc-300 hover:text-white transition-all active:scale-90"
-                              >
-                                <Tv className="w-3 h-3" />
-                              </button>
-                            </div>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openInPlayerTab(vid);
+                              }}
+                              className="w-full py-1 px-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold flex items-center justify-center gap-1 shadow-md shadow-indigo-600/40 transition-all active:scale-95"
+                            >
+                              <Play className="w-3 h-3 fill-white" />
+                              <span>Play Now</span>
+                            </button>
                           </div>
                         </div>
                       </div>
