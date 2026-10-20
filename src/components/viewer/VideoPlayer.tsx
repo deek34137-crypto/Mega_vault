@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { formatBytes, formatDuration } from '@/lib/utils/cn';
 import { MediaItem } from '@/types';
+import Hls from 'hls.js';
 
 interface VideoPlayerProps {
   media: MediaItem;
@@ -67,6 +68,61 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     capturedRef.current = false;
     setHasError(false);
   }, [media.id]);
+
+  // Support HLS (.m3u8) playback with adaptive high-definition streaming
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !media.streamUrl) return;
+
+    const stream = media.streamUrl;
+    const isHls = stream.includes('.m3u8') || media.mimeType?.includes('mpegurl');
+
+    let hlsInstance: Hls | null = null;
+
+    if (isHls && Hls.isSupported()) {
+      hlsInstance = new Hls({
+        enableWorker: true,
+        lowLatencyMode: true,
+        capLevelToPlayerSize: false, // Ensure full 1080p / highest bitrate is allowed
+      });
+
+      hlsInstance.loadSource(stream);
+      hlsInstance.attachMedia(video);
+
+      hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+        video.play().catch(() => {});
+      });
+
+      hlsInstance.on(Hls.Events.ERROR, (_event, data) => {
+        if (data.fatal) {
+          switch (data.type) {
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              hlsInstance?.startLoad();
+              break;
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              hlsInstance?.recoverMediaError();
+              break;
+            default:
+              setHasError(true);
+              break;
+          }
+        }
+      });
+    } else {
+      // Direct MP4 / WebM / native Safari HLS
+      if (video.src !== stream) {
+        video.src = stream;
+        video.load();
+        video.play().catch(() => {});
+      }
+    }
+
+    return () => {
+      if (hlsInstance) {
+        hlsInstance.destroy();
+      }
+    };
+  }, [media.streamUrl, media.mimeType]);
 
   const captureThumbnail = useCallback(() => {
     if (capturedRef.current || !videoRef.current || media.albumId === 'web-extracted' || !media.fileHandle) return;
@@ -250,7 +306,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         autoPlay
         playsInline
         preload="metadata"
-        src={media.streamUrl}
         onClick={togglePlay}
         onPlay={() => {
           setIsPlaying(true);
@@ -396,7 +451,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }`}
       >
         <div className="min-w-0">
-          <h3 className="text-xs sm:text-sm font-bold text-white font-mono truncate max-w-[35vw] sm:max-w-xs">{media.fileName}</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="text-xs sm:text-sm font-bold text-white font-mono truncate max-w-[35vw] sm:max-w-xs">{media.fileName}</h3>
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-black bg-purple-500/20 text-purple-300 border border-purple-500/40">
+              {media.quality || (media.streamUrl?.includes('1080') ? '1080p FHD' : media.streamUrl?.includes('720') ? '720p HD' : 'HD')}
+            </span>
+          </div>
           <p className="text-[10px] sm:text-xs text-zinc-400">
             {formatBytes(media.size)} {currentIndex !== undefined && totalCount ? `• ${currentIndex + 1} of ${totalCount}` : ''}
           </p>

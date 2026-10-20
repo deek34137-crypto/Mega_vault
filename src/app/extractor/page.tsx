@@ -225,6 +225,7 @@ export default function ExtractorPage() {
         createdAt: new Date().toISOString(),
         thumbnailUrl: selectedVideo.posterUrl || result?.posterUrl,
         streamUrl: useProxy ? selectedVideo.proxyStreamUrl : selectedVideo.streamUrl,
+        quality: selectedVideo.quality || (selectedVideo.streamUrl.includes('1080') ? '1080p FHD' : selectedVideo.streamUrl.includes('720') ? '720p HD' : undefined),
         isFavorite: false,
       }
     : null;
@@ -569,10 +570,10 @@ export default function ExtractorPage() {
                         {/* Gradient vignette */}
                         <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
 
-                        {/* Format badge */}
-                        <div className="absolute top-2.5 left-2.5 z-10">
+                        {/* Format & Quality badge */}
+                        <div className="absolute top-2.5 left-2.5 z-10 flex items-center gap-1">
                           <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase font-mono tracking-wider border ${fmt.bg} ${fmt.border} ${fmt.text}`}>
-                            {vid.format.split(' ')[0]}
+                            {vid.quality || (vid.streamUrl.includes('1080') ? '1080p FHD' : vid.streamUrl.includes('720') ? '720p HD' : vid.format.split(' ')[0])}
                           </span>
                         </div>
 

@@ -641,9 +641,9 @@ export default function SavedSitesPage() {
 
       {/* ─── Video Grid ──────────────────────────────────────────── */}
       {isLoading || isBrowsingPage ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
-          {Array.from({ length: 10 }).map((_, i) => (
-            <div key={i} className="aspect-[2/3] rounded-2xl bg-white/[0.04] border border-white/[0.05] animate-pulse" />
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2.5 sm:gap-3.5">
+          {Array.from({ length: 12 }).map((_, i) => (
+            <div key={i} className={`${cardLayout === 'compact' ? 'aspect-video' : 'aspect-[3/4]'} rounded-2xl bg-white/[0.04] border border-white/[0.05] animate-pulse`} />
           ))}
         </div>
       ) : filteredVideos.length === 0 ? (
@@ -679,7 +679,7 @@ export default function SavedSitesPage() {
           ) : null}
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2.5 sm:gap-3.5">
           {filteredVideos.map((vid) => {
             const poster = vid.poster_url;
             const fmt = formatColor(vid.format);
@@ -692,17 +692,17 @@ export default function SavedSitesPage() {
                 onMouseLeave={() => setHoveredId(null)}
                 className="group relative rounded-2xl overflow-hidden border border-white/[0.07] bg-zinc-950 cursor-pointer"
                 style={{
-                  transform: isHovered ? 'translateY(-4px) scale(1.01)' : 'none',
+                  transform: isHovered ? 'translateY(-3px) scale(1.01)' : 'none',
                   boxShadow: isHovered
-                    ? '0 20px 40px rgba(0,0,0,0.6), 0 0 30px rgba(168,85,247,0.12)'
+                    ? '0 16px 32px rgba(0,0,0,0.6), 0 0 25px rgba(168,85,247,0.12)'
                     : 'none',
-                  transition: 'transform 0.3s cubic-bezier(0.16,1,0.3,1), box-shadow 0.3s cubic-bezier(0.16,1,0.3,1)',
+                  transition: 'transform 0.25s cubic-bezier(0.16,1,0.3,1), box-shadow 0.25s cubic-bezier(0.16,1,0.3,1)',
                   borderColor: isHovered ? 'rgba(168,85,247,0.25)' : undefined,
                 }}
                 onClick={() => setSelectedVideo(vid)}
               >
                 {/* Poster */}
-                <div className="relative aspect-[2/3] overflow-hidden bg-zinc-900">
+                <div className={`relative ${cardLayout === 'compact' ? 'aspect-video' : 'aspect-[3/4]'} overflow-hidden bg-zinc-900`}>
                   {poster ? (
                     <img
                       src={poster}
@@ -710,28 +710,28 @@ export default function SavedSitesPage() {
                       loading="lazy"
                       className="w-full h-full object-cover object-top"
                       style={{
-                        transform: isHovered ? 'scale(1.06)' : 'scale(1)',
-                        transition: 'transform 0.5s cubic-bezier(0.16,1,0.3,1)',
+                        transform: isHovered ? 'scale(1.05)' : 'scale(1)',
+                        transition: 'transform 0.4s cubic-bezier(0.16,1,0.3,1)',
                       }}
                     />
                   ) : (
                     <div className="w-full h-full bg-gradient-to-br from-purple-950/80 via-zinc-900 to-zinc-950 flex items-center justify-center">
-                      <Film className="w-8 h-8 text-purple-500/30" />
+                      <Film className="w-7 h-7 text-purple-500/30" />
                     </div>
                   )}
 
                   <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
 
-                  {/* Badges */}
-                  <div className="absolute top-2.5 left-2.5 z-10 flex items-center gap-1.5">
-                    <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase font-mono tracking-wider border ${fmt.bg} ${fmt.border} ${fmt.text}`}>
-                      {vid.format.split(' ')[0]}
+                  {/* Quality & Format Badges */}
+                  <div className="absolute top-2 left-2 z-10 flex items-center gap-1">
+                    <span className="px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase font-mono tracking-wider bg-purple-500/30 border border-purple-500/40 text-purple-200 shadow-md backdrop-blur-md">
+                      {vid.quality || (vid.stream_url.includes('1080') ? '1080p FHD' : vid.stream_url.includes('720') ? '720p HD' : vid.format.split(' ')[0])}
                     </span>
                   </div>
 
                   {vid.site_nickname && !selectedSiteId && (
-                    <div className="absolute top-2.5 right-2.5 z-10">
-                      <span className="px-2 py-0.5 rounded-md bg-purple-600/90 text-[9px] font-bold text-white truncate max-w-[90px] block">
+                    <div className="absolute top-2 right-2 z-10">
+                      <span className="px-1.5 py-0.5 rounded-md bg-purple-600/90 text-[9px] font-bold text-white truncate max-w-[75px] sm:max-w-[105px] block shadow-md">
                         {vid.site_nickname}
                       </span>
                     </div>
@@ -742,15 +742,15 @@ export default function SavedSitesPage() {
                     className="absolute inset-0 flex items-center justify-center"
                     style={{ opacity: isHovered ? 1 : 0, transition: 'opacity 0.2s ease' }}
                   >
-                    <div className="w-14 h-14 rounded-full bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center">
-                      <Play className="w-6 h-6 fill-white text-white translate-x-0.5" />
+                    <div className="w-11 h-11 rounded-full bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center">
+                      <Play className="w-5 h-5 fill-white text-white translate-x-0.5" />
                     </div>
                   </div>
 
                   {/* Title */}
-                  <div className="absolute bottom-0 left-0 right-0 p-3 z-10">
+                  <div className="absolute bottom-0 left-0 right-0 p-2 sm:p-2.5 z-10 bg-gradient-to-t from-black/95 via-black/70 to-transparent">
                     <h3
-                      className="text-xs font-bold text-white leading-snug"
+                      className="text-[11px] sm:text-xs font-bold text-white leading-tight"
                       style={{
                         display: '-webkit-box',
                         WebkitLineClamp: 2,
@@ -764,28 +764,30 @@ export default function SavedSitesPage() {
                 </div>
 
                 {/* Action bar */}
-                <div className="px-3 py-2.5 flex items-center gap-1.5 bg-zinc-950" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                <div className="px-2.5 py-2 flex items-center gap-1.5 bg-zinc-950" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
                   <button
                     onClick={(e) => { e.stopPropagation(); setSelectedVideo(vid); }}
-                    className="flex-1 py-1.5 rounded-xl bg-purple-600/90 hover:bg-purple-500 text-white text-[11px] font-bold flex items-center justify-center gap-1 transition-all"
+                    className="flex-1 py-1 px-2 rounded-xl bg-purple-600/90 hover:bg-purple-500 text-white text-[11px] font-bold flex items-center justify-center gap-1 transition-all"
                   >
                     <Play className="w-3 h-3 fill-white" />
                     <span>Play</span>
                   </button>
                   <button
                     onClick={(e) => { e.stopPropagation(); handleCopyLink(vid.id, vid.stream_url); }}
-                    className="p-1.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.09] border border-white/[0.07] text-zinc-400 hover:text-white transition-all"
+                    title="Copy stream link"
+                    className="p-1 rounded-xl bg-white/[0.05] hover:bg-white/[0.09] border border-white/[0.07] text-zinc-400 hover:text-white transition-all"
                   >
-                    {copiedId === vid.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    {copiedId === vid.id ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
                   </button>
                   <a
                     href={vid.stream_url}
                     target="_blank"
                     rel="noopener noreferrer"
+                    title="Open source stream"
                     onClick={(e) => e.stopPropagation()}
-                    className="p-1.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.09] border border-white/[0.07] text-zinc-400 hover:text-white transition-all"
+                    className="p-1 rounded-xl bg-white/[0.05] hover:bg-white/[0.09] border border-white/[0.07] text-zinc-400 hover:text-white transition-all"
                   >
-                    <ExternalLink className="w-3.5 h-3.5" />
+                    <ExternalLink className="w-3 h-3" />
                   </a>
                 </div>
               </div>

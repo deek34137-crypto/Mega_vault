@@ -17,6 +17,7 @@ export interface MediaItem {
   createdAt: string;
   thumbnailUrl?: string;
   streamUrl?: string;
+  quality?: string;
   width?: number;
   height?: number;
   duration?: number; // for videos in seconds
