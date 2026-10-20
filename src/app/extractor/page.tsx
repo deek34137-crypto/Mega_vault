@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { VideoPlayer } from '@/components/viewer/VideoPlayer';
 import { MediaItem } from '@/types';
@@ -8,7 +8,6 @@ import {
   Link as LinkIcon,
   Play,
   Film,
-  Sparkles,
   ShieldCheck,
   Zap,
   Copy,
@@ -19,11 +18,26 @@ import {
   X,
   ExternalLink,
   Clipboard,
-  Radio,
   Tv,
+  ChevronRight,
+  ChevronLeft,
+  RefreshCw,
+  Globe,
+  Layers,
+  ArrowRight,
+  Search,
+  Maximize2,
+  Volume2,
 } from 'lucide-react';
+import { buildPagedUrl } from '@/lib/extractor';
 
-interface ExtractedVideo {
+export interface ExtractedSection {
+  id: string;
+  name: string;
+  url: string;
+}
+
+export interface ExtractedVideo {
   id: string;
   title: string;
   streamUrl: string;
@@ -31,15 +45,32 @@ interface ExtractedVideo {
   posterUrl?: string;
   mimeType: string;
   format: string;
-  source: 'direct' | 'html5' | 'opengraph' | 'jsonld' | 'script' | 'link';
+  source: 'direct' | 'html5' | 'opengraph' | 'jsonld' | 'script' | 'link' | 'channel-card' | 'iframe';
 }
 
-interface ExtractionResult {
+export interface ExtractionResult {
   pageTitle: string;
   pageUrl: string;
   posterUrl?: string;
   count: number;
   videos: ExtractedVideo[];
+  sections?: ExtractedSection[];
+}
+
+interface SavedSiteChip {
+  id: string;
+  nickname: string;
+  url: string;
+  video_count: number;
+}
+
+// ─── Format Badge Colors ────────────────────────────────────────────
+function formatColor(format: string) {
+  const f = format.toUpperCase();
+  if (f.includes('M3U8') || f.includes('HLS')) return { bg: 'bg-violet-500/20', border: 'border-violet-500/40', text: 'text-violet-300' };
+  if (f.includes('MP4')) return { bg: 'bg-blue-500/20', border: 'border-blue-500/40', text: 'text-blue-300' };
+  if (f.includes('WEBM')) return { bg: 'bg-cyan-500/20', border: 'border-cyan-500/40', text: 'text-cyan-300' };
+  return { bg: 'bg-zinc-700/40', border: 'border-zinc-600/40', text: 'text-zinc-300' };
 }
 
 export default function ExtractorPage() {
@@ -49,50 +80,91 @@ export default function ExtractorPage() {
   const [result, setResult] = useState<ExtractionResult | null>(null);
   const [useProxy, setUseProxy] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-
-  // Player state
+  const [savedSites, setSavedSites] = useState<SavedSiteChip[]>([]);
+  const [activeSectionUrl, setActiveSectionUrl] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [isPaginating, setIsPaginating] = useState<boolean>(false);
   const [selectedVideo, setSelectedVideo] = useState<ExtractedVideo | null>(null);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [focusedInput, setFocusedInput] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const cursorRef = useRef<HTMLDivElement>(null);
 
-  // Focus input on mount
+  // Custom cursor tracking
   useEffect(() => {
+    const move = (e: MouseEvent) => {
+      if (cursorRef.current) {
+        cursorRef.current.style.left = e.clientX + 'px';
+        cursorRef.current.style.top = e.clientY + 'px';
+      }
+    };
+    window.addEventListener('mousemove', move);
+    return () => window.removeEventListener('mousemove', move);
+  }, []);
+
+  useEffect(() => {
+    fetch('/api/sites')
+      .then((res) => res.json())
+      .then((data) => { if (data.sites) setSavedSites(data.sites); })
+      .catch(() => {});
     inputRef.current?.focus();
   }, []);
 
-  const handleExtract = async (overrideUrl?: string) => {
-    const target = (overrideUrl || urlInput).trim();
-    if (!target) return;
+  const handleUrlInputChange = (val: string) => {
+    setUrlInput(val);
+    if (result && val.trim() !== result.pageUrl) {
+      setResult(null);
+      setErrorMessage(null);
+      setActiveSectionUrl(null);
+      setCurrentPage(1);
+    }
+  };
 
-    setIsLoading(true);
+  const handleExtract = async (overrideUrl?: string, pageNumber: number = 1) => {
+    const rawTarget = (overrideUrl || urlInput).trim();
+    if (!rawTarget) return;
+
+    if (pageNumber === 1 && !overrideUrl) setResult(null);
+
+    if (pageNumber > 1) setIsPaginating(true);
+    else {
+      setIsLoading(true);
+      setResult(null);
+    }
     setErrorMessage(null);
+    setSearchQuery('');
 
     try {
+      const targetUrl = pageNumber > 1 ? buildPagedUrl(rawTarget, pageNumber) : rawTarget;
       const res = await fetch('/api/tools/extract-video', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: target }),
+        body: JSON.stringify({ url: targetUrl }),
       });
 
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        setErrorMessage(data.error || 'Failed to extract video streams from this page');
+        setErrorMessage(data.error || 'Failed to extract video streams from this website');
         setResult(null);
       } else if (data.videos.length === 0) {
-        setErrorMessage(
-          'No direct video streams (<video>, <source>, MP4, WebM, M3U8) were found on this page. The site may require authentication or dynamic browser execution.'
-        );
+        setErrorMessage('No video streams found on this page. The site may require login or has bot protection.');
         setResult(data);
       } else {
         setResult(data);
+        setCurrentPage(pageNumber);
         setErrorMessage(null);
+        setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
       }
     } catch (err: any) {
-      setErrorMessage(err.message || 'Network error occurred while scraping');
+      setErrorMessage(err.message || 'Network error occurred while scanning');
       setResult(null);
     } finally {
       setIsLoading(false);
+      setIsPaginating(false);
     }
   };
 
@@ -100,12 +172,28 @@ export default function ExtractorPage() {
     try {
       const text = await navigator.clipboard.readText();
       if (text) {
+        setResult(null);
         setUrlInput(text);
-        handleExtract(text);
+        setActiveSectionUrl(null);
+        setCurrentPage(1);
+        handleExtract(text, 1);
       }
     } catch {
       inputRef.current?.focus();
     }
+  };
+
+  const handleSelectSection = (sectionUrl: string | null) => {
+    setActiveSectionUrl(sectionUrl);
+    setCurrentPage(1);
+    const target = sectionUrl || urlInput;
+    handleExtract(target, 1);
+  };
+
+  const handleNavigatePage = (newPage: number) => {
+    if (newPage < 1 || isPaginating) return;
+    const base = activeSectionUrl || result?.pageUrl || urlInput;
+    handleExtract(base, newPage);
   };
 
   const handleCopy = (id: string, streamUrl: string) => {
@@ -114,14 +202,22 @@ export default function ExtractorPage() {
     setTimeout(() => setCopiedId(null), 2500);
   };
 
-  // Convert ExtractedVideo into MediaItem so VideoPlayer can play it
+  const filteredVideos = useMemo(() => {
+    if (!result) return [];
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return result.videos;
+    return result.videos.filter(v =>
+      v.title.toLowerCase().includes(q) || v.format.toLowerCase().includes(q) || v.source.toLowerCase().includes(q)
+    );
+  }, [result, searchQuery]);
+
   const playerMediaItem: MediaItem | null = selectedVideo
     ? {
         id: selectedVideo.id,
         albumId: 'web-extracted',
         albumTitle: result?.pageTitle || 'Web Stream',
         folderPath: 'Ad-Free Player',
-        fileHandle: 'web',
+        fileHandle: selectedVideo.id,
         fileName: selectedVideo.title,
         mimeType: selectedVideo.mimeType || 'video/mp4',
         mediaType: 'VIDEO',
@@ -129,323 +225,488 @@ export default function ExtractorPage() {
         createdAt: new Date().toISOString(),
         thumbnailUrl: selectedVideo.posterUrl || result?.posterUrl,
         streamUrl: useProxy ? selectedVideo.proxyStreamUrl : selectedVideo.streamUrl,
+        isFavorite: false,
       }
     : null;
 
   return (
     <PageContainer>
-      {/* Header Banner */}
-      <div className="mb-6 sm:mb-8">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      {/* ─── Ambient Cursor Glow ────────────────────────────────── */}
+      <div
+        ref={cursorRef}
+        className="pointer-events-none fixed z-0 w-[600px] h-[600px] -translate-x-1/2 -translate-y-1/2 rounded-full opacity-[0.03]"
+        style={{
+          background: 'radial-gradient(circle, rgba(99,102,241,1) 0%, transparent 70%)',
+          transition: 'left 0.15s ease-out, top 0.15s ease-out',
+        }}
+      />
+
+      {/* ─── Page Header ────────────────────────────────────────── */}
+      <div className="relative mb-10 sm:mb-14">
+        {/* Eyebrow tag */}
+        <div className="inline-flex items-center gap-2 mb-4 px-3 py-1.5 rounded-full border border-white/10 bg-white/[0.04] backdrop-blur-sm">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="text-[11px] font-semibold tracking-[0.15em] uppercase text-zinc-400">
+            Zero-Storage · Ad-Free · Any Site
+          </span>
+        </div>
+
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6">
           <div>
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-semibold mb-2">
-              <ShieldCheck className="w-3.5 h-3.5" />
-              <span>Zero-Storage • 100% Ad & Popup Free</span>
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight flex items-center gap-2">
-              <span>Web Video Stream Extractor</span>
-              <Sparkles className="w-5 h-5 text-blue-400" />
+            <h1 className="text-4xl sm:text-5xl font-black text-white tracking-tight leading-none mb-3">
+              Web Stream{' '}
+              <span
+                className="relative inline-block"
+                style={{
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                  backgroundImage: 'linear-gradient(135deg, #818cf8 0%, #c084fc 50%, #38bdf8 100%)',
+                  backgroundClip: 'text',
+                }}
+              >
+                Extractor
+              </span>
             </h1>
-            <p className="text-xs sm:text-sm text-zinc-400 mt-1 max-w-2xl">
-              Paste any webpage link from your sites. MegaVault extracts raw video streams and poster thumbnails so you can watch them directly inside our built-in player with zero ads, redirects, or intrusive popups.
+            <p className="text-sm text-zinc-500 max-w-lg leading-relaxed">
+              Paste any website URL — we extract real video streams with full thumbnails.
+              Watch instantly with zero ads, zero popups, zero pre-downloading.
             </p>
           </div>
 
-          {/* Proxy Stream Switch */}
-          <div className="flex items-center gap-2 p-2 rounded-2xl glass-panel border border-zinc-800 bg-zinc-950/80">
+          {/* Controls */}
+          <div className="flex items-center gap-2 flex-shrink-0">
             <button
               onClick={() => setUseProxy(!useProxy)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${
+              title="Toggle CORS bypass proxy"
+              className={`group relative px-4 py-2.5 rounded-2xl text-xs font-bold flex items-center gap-2 transition-all duration-300 overflow-hidden ${
                 useProxy
-                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
-                  : 'text-zinc-400 hover:text-white bg-zinc-900'
+                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/25'
+                  : 'bg-white/[0.06] border border-white/10 text-zinc-400 hover:text-white hover:bg-white/[0.09]'
               }`}
             >
               <Zap className="w-3.5 h-3.5" />
-              <span>{useProxy ? 'Bypass CORS/Hotlink: ON' : 'Direct Stream: ON'}</span>
+              <span className="hidden sm:inline">{useProxy ? 'CORS Bypass: ON' : 'Direct'}</span>
             </button>
           </div>
         </div>
       </div>
 
-      {/* Main Input Form */}
-      <div className="glass-panel p-4 sm:p-6 rounded-3xl border border-zinc-800/80 bg-zinc-950/70 mb-8 shadow-2xl relative overflow-hidden">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleExtract();
-          }}
-          className="space-y-4"
-        >
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-            <div className="relative flex-1">
-              <LinkIcon className="w-5 h-5 text-zinc-500 absolute left-4 top-1/2 -translate-y-1/2" />
-              <input
-                ref={inputRef}
-                type="text"
-                value={urlInput}
-                onChange={(e) => setUrlInput(e.target.value)}
-                placeholder="Paste website link or direct video URL (e.g. https://your-site.com/watch?v=...)"
-                disabled={isLoading}
-                className="w-full bg-zinc-900/90 border border-zinc-700/80 rounded-2xl pl-12 pr-24 py-3.5 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all font-mono"
-              />
+      {/* ─── Main Input Panel ───────────────────────────────────── */}
+      <div className="relative mb-8">
+        {/* Glow border effect */}
+        <div
+          className={`absolute inset-0 rounded-3xl transition-all duration-500 pointer-events-none ${
+            focusedInput
+              ? 'shadow-[0_0_0_1px_rgba(99,102,241,0.5),0_0_40px_rgba(99,102,241,0.12)]'
+              : 'shadow-[0_0_0_1px_rgba(255,255,255,0.07)]'
+          }`}
+        />
+        <div className="relative bg-zinc-950/80 backdrop-blur-xl rounded-3xl p-5 sm:p-6 border border-white/[0.06]">
+          <form
+            onSubmit={(e) => { e.preventDefault(); handleExtract(undefined, 1); }}
+            className="space-y-4"
+          >
+            <div className="flex flex-col sm:flex-row items-stretch gap-3">
+              {/* URL Input */}
+              <div className="relative flex-1">
+                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500">
+                  <Globe className="w-4 h-4" />
+                </div>
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={urlInput}
+                  onChange={(e) => handleUrlInputChange(e.target.value)}
+                  onFocus={() => setFocusedInput(true)}
+                  onBlur={() => setFocusedInput(false)}
+                  placeholder="Paste any website URL — e.g. xnxx.health, desihub.sh, or direct stream link..."
+                  disabled={isLoading}
+                  className="w-full bg-transparent border border-white/[0.08] rounded-2xl pl-11 pr-24 py-4 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-indigo-500/60 transition-all font-mono tracking-tight"
+                />
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+                  {urlInput ? (
+                    <button
+                      type="button"
+                      onClick={() => { setUrlInput(''); setResult(null); setErrorMessage(null); setActiveSectionUrl(null); setCurrentPage(1); }}
+                      className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.06] transition-all"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handlePasteClipboard}
+                      className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-zinc-400 hover:text-white bg-white/[0.05] hover:bg-white/[0.09] border border-white/[0.08] transition-all flex items-center gap-1"
+                    >
+                      <Clipboard className="w-3 h-3" />
+                      <span>Paste</span>
+                    </button>
+                  )}
+                </div>
+              </div>
 
-              {/* Action buttons inside input */}
-              <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center space-x-1.5">
-                {urlInput ? (
+              {/* Extract Button */}
+              <button
+                type="submit"
+                disabled={isLoading || !urlInput.trim()}
+                className="group relative px-7 py-4 rounded-2xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-sm flex items-center justify-center gap-2.5 transition-all duration-200 shadow-lg shadow-indigo-600/30 overflow-hidden flex-shrink-0"
+              >
+                <div className="absolute inset-0 bg-gradient-to-r from-indigo-600 to-violet-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+                <span className="relative flex items-center gap-2">
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Scanning...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-4 h-4 fill-white" />
+                      <span>Extract & Play</span>
+                    </>
+                  )}
+                </span>
+              </button>
+            </div>
+
+            {/* Saved Site Chips */}
+            {savedSites.length > 0 && (
+              <div className="flex items-center gap-2 overflow-x-auto pb-0.5 scrollbar-none pt-1">
+                <div className="flex items-center gap-1 text-[10px] font-bold tracking-[0.12em] uppercase text-zinc-600 whitespace-nowrap pr-2 flex-shrink-0">
+                  <Tv className="w-3 h-3 text-indigo-500" />
+                  <span>Channels</span>
+                </div>
+                <div className="w-px h-3 bg-white/10 flex-shrink-0" />
+                {savedSites.map((site) => (
                   <button
+                    key={site.id}
                     type="button"
                     onClick={() => {
-                      setUrlInput('');
                       setResult(null);
-                      setErrorMessage(null);
+                      setUrlInput(site.url);
+                      setActiveSectionUrl(null);
+                      setCurrentPage(1);
+                      handleExtract(site.url, 1);
                     }}
-                    className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+                    className="group flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/[0.04] hover:bg-indigo-600/20 border border-white/[0.06] hover:border-indigo-500/40 text-zinc-400 hover:text-white text-xs font-semibold whitespace-nowrap transition-all duration-200"
                   >
-                    <X className="w-4 h-4" />
+                    <span>{site.nickname}</span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-black/40 text-indigo-400 group-hover:text-indigo-300">
+                      {site.video_count}
+                    </span>
                   </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={handlePasteClipboard}
-                    title="Paste from clipboard"
-                    className="px-2 py-1 rounded-lg text-xs text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 transition-colors flex items-center gap-1"
-                  >
-                    <Clipboard className="w-3 h-3" />
-                    <span>Paste</span>
-                  </button>
-                )}
+                ))}
               </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={isLoading || !urlInput.trim()}
-              className="px-6 py-3.5 rounded-2xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-blue-600/30 flex-shrink-0"
-            >
-              {isLoading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Extracting...</span>
-                </>
-              ) : (
-                <>
-                  <Play className="w-4 h-4 fill-white" />
-                  <span>Extract & Play</span>
-                </>
-              )}
-            </button>
-          </div>
-
-          {/* Quick Info & Test Demos */}
-          <div className="flex flex-wrap items-center justify-between text-xs text-zinc-400 gap-2 pt-1">
-            <span className="flex items-center gap-1.5 text-zinc-500">
-              <Tv className="w-3.5 h-3.5 text-blue-400" />
-              <span>Supports HTML5 video tags, OpenGraph video, JSON-LD VideoObjects, and direct streams.</span>
-            </span>
-
-            {/* Quick Demo Links */}
-            <div className="flex items-center space-x-2">
-              <span className="text-zinc-500">Try sample:</span>
-              <button
-                type="button"
-                onClick={() => {
-                  const demoUrl = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
-                  setUrlInput(demoUrl);
-                  handleExtract(demoUrl);
-                }}
-                className="text-blue-400 hover:text-blue-300 underline font-mono text-[11px]"
-              >
-                BigBuckBunny MP4
-              </button>
-              <span>•</span>
-              <button
-                type="button"
-                onClick={() => {
-                  const demoUrl = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4';
-                  setUrlInput(demoUrl);
-                  handleExtract(demoUrl);
-                }}
-                className="text-purple-400 hover:text-purple-300 underline font-mono text-[11px]"
-              >
-                ElephantsDream MP4
-              </button>
-            </div>
-          </div>
-        </form>
+            )}
+          </form>
+        </div>
       </div>
 
-      {/* Error Message */}
+      {/* ─── Error Notice ───────────────────────────────────────── */}
       {errorMessage && (
-        <div className="mb-8 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs sm:text-sm font-medium flex items-start gap-3 shadow-lg">
-          <AlertCircle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
-          <div className="space-y-1">
-            <p className="font-bold text-amber-200">Extraction Notice</p>
-            <p className="text-zinc-300 text-xs leading-relaxed">{errorMessage}</p>
+        <div className="mb-8 flex items-start gap-4 p-5 rounded-2xl bg-amber-950/30 border border-amber-500/20 backdrop-blur-sm">
+          <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/20 flex-shrink-0 mt-0.5">
+            <AlertCircle className="w-4 h-4 text-amber-400" />
           </div>
-        </div>
-      )}
-
-      {/* Results Header */}
-      {result && (
-        <div className="mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 rounded-2xl glass-panel border border-zinc-800 bg-zinc-950/60">
           <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-base sm:text-lg font-bold text-white truncate max-w-xl">
-                {result.pageTitle}
-              </h2>
-              <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-xs font-mono font-bold">
-                {result.videos.length} {result.videos.length === 1 ? 'Stream' : 'Streams'} Found
-              </span>
-            </div>
-            <a
-              href={result.pageUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-zinc-500 hover:text-blue-400 inline-flex items-center gap-1 font-mono mt-0.5 truncate max-w-md"
-            >
-              <span>{result.pageUrl}</span>
-              <ExternalLink className="w-3 h-3 flex-shrink-0" />
-            </a>
+            <p className="text-sm font-bold text-amber-300 mb-0.5">Extraction Notice</p>
+            <p className="text-xs text-zinc-400 leading-relaxed">{errorMessage}</p>
           </div>
-
-          <button
-            onClick={() => handleExtract()}
-            disabled={isLoading}
-            className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white text-xs font-semibold transition-colors flex items-center gap-1.5 flex-shrink-0"
-          >
-            <Radio className="w-3.5 h-3.5 text-blue-400" />
-            <span>Re-scan Page</span>
+          <button onClick={() => setErrorMessage(null)} className="ml-auto text-zinc-600 hover:text-zinc-400 flex-shrink-0">
+            <X className="w-4 h-4" />
           </button>
         </div>
       )}
 
-      {/* Extracted Video Cards Grid */}
-      {result && result.videos.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6 mb-12">
-          {result.videos.map((vid) => {
-            const isPlayingThis = selectedVideo?.id === vid.id;
-            const poster = vid.posterUrl || result.posterUrl;
+      {/* ─── Results Area ────────────────────────────────────────── */}
+      <div ref={resultsRef}>
+        {result && (
+          <>
+            {/* Result Header */}
+            <div className="mb-6 p-5 rounded-2xl bg-white/[0.03] border border-white/[0.06] backdrop-blur-sm">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-3 flex-wrap mb-1">
+                    <h2 className="text-lg font-bold text-white truncate">{result.pageTitle}</h2>
+                    <span className="px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/25 text-emerald-400 text-[11px] font-mono font-bold flex-shrink-0">
+                      {result.videos.length} streams
+                    </span>
+                    {currentPage > 1 && (
+                      <span className="px-2.5 py-1 rounded-full bg-indigo-500/15 border border-indigo-500/25 text-indigo-400 text-[11px] font-mono font-bold flex-shrink-0">
+                        Page {currentPage}
+                      </span>
+                    )}
+                  </div>
+                  <a
+                    href={result.pageUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[11px] text-zinc-600 hover:text-indigo-400 inline-flex items-center gap-1 font-mono transition-colors truncate max-w-md"
+                  >
+                    <span>{result.pageUrl}</span>
+                    <ExternalLink className="w-3 h-3 flex-shrink-0" />
+                  </a>
+                </div>
 
-            return (
-              <div
-                key={vid.id}
-                className="glass-panel rounded-2xl overflow-hidden border border-zinc-800/80 bg-zinc-950 flex flex-col group hover:border-blue-500/50 hover:shadow-xl transition-all duration-200"
-              >
-                {/* Poster / Play Overlay */}
-                <div
-                  onClick={() => setSelectedVideo(vid)}
-                  className="relative aspect-video w-full bg-zinc-900 cursor-pointer overflow-hidden flex items-center justify-center"
-                >
-                  {poster ? (
-                    <img
-                      src={poster}
-                      alt={vid.title}
-                      loading="lazy"
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    />
-                  ) : (
-                    <div className="w-full h-full bg-gradient-to-br from-blue-950 via-zinc-900 to-zinc-950 flex items-center justify-center">
-                      <Film className="w-10 h-10 text-blue-500/40" />
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {/* Search within results */}
+                  {result.videos.length > 4 && (
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Filter results..."
+                        className="w-40 bg-white/[0.05] border border-white/[0.08] rounded-xl pl-8 pr-3 py-2 text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-indigo-500/40 transition-all"
+                      />
                     </div>
                   )}
-
-                  {/* Format & Source Badges */}
-                  <div className="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between z-10">
-                    <span className="px-2 py-0.5 rounded-md bg-black/80 backdrop-blur-md text-[10px] font-extrabold text-blue-300 border border-white/10 uppercase font-mono">
-                      {vid.format}
-                    </span>
-                    <span className="px-1.5 py-0.5 rounded-md bg-black/70 text-[9px] font-mono text-zinc-400 uppercase">
-                      {vid.source}
-                    </span>
-                  </div>
-
-                  {/* Play Button Overlay */}
-                  <div className="absolute inset-0 bg-black/40 group-hover:bg-black/20 flex items-center justify-center transition-colors">
-                    <div className="w-12 h-12 rounded-full bg-blue-600 text-white flex items-center justify-center group-hover:scale-110 group-hover:bg-blue-500 transition-all shadow-xl shadow-blue-600/50 border border-white/20">
-                      <Play className="w-5 h-5 fill-white translate-x-0.5" />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Video Info & Controls */}
-                <div className="p-3.5 flex flex-col justify-between flex-1 space-y-3">
-                  <div>
-                    <h3 className="text-xs font-bold text-white line-clamp-2 leading-snug group-hover:text-blue-400 transition-colors" title={vid.title}>
-                      {vid.title}
-                    </h3>
-                  </div>
-
-                  {/* Actions */}
-                  <div className="pt-2 border-t border-zinc-800/80 flex items-center justify-between gap-2">
-                    <button
-                      onClick={() => setSelectedVideo(vid)}
-                      className="flex-1 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-sm"
-                    >
-                      <Play className="w-3.5 h-3.5 fill-white" />
-                      <span>Play Ad-Free</span>
-                    </button>
-
-                    <button
-                      onClick={() => handleCopy(vid.id, useProxy ? vid.proxyStreamUrl : vid.streamUrl)}
-                      title="Copy video stream link"
-                      className="p-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white transition-colors"
-                    >
-                      {copiedId === vid.id ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-                    </button>
-
-                    <a
-                      href={`${vid.proxyStreamUrl}&download=true`}
-                      download
-                      title="Download direct video"
-                      className="p-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white transition-colors"
-                    >
-                      <Download className="w-4 h-4" />
-                    </a>
-                  </div>
+                  <button
+                    onClick={() => handleExtract(activeSectionUrl || urlInput, currentPage)}
+                    disabled={isLoading || isPaginating}
+                    className="px-3.5 py-2 rounded-xl bg-white/[0.05] hover:bg-white/[0.08] text-zinc-300 hover:text-white border border-white/[0.08] text-xs font-semibold transition-all flex items-center gap-1.5"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isLoading || isPaginating ? 'animate-spin text-indigo-400' : ''}`} />
+                    <span>Re-scan</span>
+                  </button>
                 </div>
               </div>
-            );
-          })}
-        </div>
-      )}
 
-      {/* Empty State / How it works Guide */}
-      {!result && !isLoading && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6 my-10">
-          <div className="p-5 rounded-2xl glass-panel border border-zinc-800/80 bg-zinc-950/60 flex flex-col space-y-2">
-            <div className="w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
-              <LinkIcon className="w-5 h-5" />
+              {/* Section Tabs */}
+              {result.sections && result.sections.length > 1 && (
+                <div className="mt-4 pt-4 border-t border-white/[0.06]">
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                    <span className="text-[10px] font-bold tracking-[0.12em] uppercase text-zinc-600 whitespace-nowrap pr-2 flex-shrink-0 flex items-center gap-1">
+                      <Layers className="w-3 h-3 text-indigo-500" />
+                      <span>Sections</span>
+                    </span>
+                    <div className="w-px h-3 bg-white/10 flex-shrink-0" />
+
+                    <button
+                      onClick={() => handleSelectSection(null)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
+                        activeSectionUrl === null
+                          ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
+                          : 'text-zinc-500 hover:text-zinc-200 hover:bg-white/[0.05]'
+                      }`}
+                    >
+                      All
+                    </button>
+
+                    {result.sections
+                      .filter((s) => s.id !== 'home')
+                      .map((sec) => {
+                        const isActive = activeSectionUrl === sec.url;
+                        return (
+                          <button
+                            key={sec.id}
+                            onClick={() => handleSelectSection(sec.url)}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
+                              isActive
+                                ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
+                                : 'text-zinc-500 hover:text-zinc-200 hover:bg-white/[0.05]'
+                            }`}
+                          >
+                            {sec.name}
+                          </button>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
             </div>
-            <h3 className="text-sm font-bold text-white">1. Paste Any Page Link</h3>
-            <p className="text-xs text-zinc-400 leading-relaxed">
-              Paste URLs from your sites or video hosts into the input box above. No setup or configuration needed.
-            </p>
-          </div>
 
-          <div className="p-5 rounded-2xl glass-panel border border-zinc-800/80 bg-zinc-950/60 flex flex-col space-y-2">
-            <div className="w-9 h-9 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
-              <Zap className="w-5 h-5" />
+            {/* Loading skeletons */}
+            {(isLoading || isPaginating) && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4 mb-12">
+                {Array.from({ length: 10 }).map((_, i) => (
+                  <div key={i} className="aspect-[2/3] rounded-2xl bg-white/[0.04] border border-white/[0.05] animate-pulse" />
+                ))}
+              </div>
+            )}
+
+            {/* Video Grid */}
+            {!isLoading && !isPaginating && filteredVideos.length > 0 && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4 mb-8">
+                {filteredVideos.map((vid) => {
+                  const poster = vid.posterUrl || result?.posterUrl;
+                  const fmt = formatColor(vid.format);
+                  const isHovered = hoveredId === vid.id;
+
+                  return (
+                    <div
+                      key={vid.id}
+                      onMouseEnter={() => setHoveredId(vid.id)}
+                      onMouseLeave={() => setHoveredId(null)}
+                      className="group relative rounded-2xl overflow-hidden border border-white/[0.07] bg-zinc-950 cursor-pointer"
+                      style={{
+                        transform: isHovered ? 'translateY(-4px) scale(1.01)' : 'none',
+                        boxShadow: isHovered ? '0 20px 40px rgba(0,0,0,0.6), 0 0 30px rgba(99,102,241,0.12)' : 'none',
+                        transition: 'transform 0.3s cubic-bezier(0.16,1,0.3,1), box-shadow 0.3s cubic-bezier(0.16,1,0.3,1)',
+                        borderColor: isHovered ? 'rgba(99,102,241,0.3)' : undefined,
+                      }}
+                      onClick={() => setSelectedVideo(vid)}
+                    >
+                      {/* Poster */}
+                      <div className="relative aspect-[2/3] overflow-hidden bg-zinc-900">
+                        {poster ? (
+                          <img
+                            src={poster}
+                            alt={vid.title}
+                            loading="lazy"
+                            className="w-full h-full object-cover object-top"
+                            style={{
+                              transform: isHovered ? 'scale(1.06)' : 'scale(1)',
+                              transition: 'transform 0.5s cubic-bezier(0.16,1,0.3,1)',
+                            }}
+                          />
+                        ) : (
+                          <div className="w-full h-full bg-gradient-to-br from-indigo-950/80 via-zinc-900 to-zinc-950 flex items-center justify-center">
+                            <Film className="w-8 h-8 text-indigo-500/30" />
+                          </div>
+                        )}
+
+                        {/* Gradient vignette */}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
+
+                        {/* Format badge */}
+                        <div className="absolute top-2.5 left-2.5 z-10">
+                          <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase font-mono tracking-wider border ${fmt.bg} ${fmt.border} ${fmt.text}`}>
+                            {vid.format.split(' ')[0]}
+                          </span>
+                        </div>
+
+                        {/* Play button overlay */}
+                        <div
+                          className="absolute inset-0 flex items-center justify-center"
+                          style={{
+                            opacity: isHovered ? 1 : 0,
+                            transition: 'opacity 0.2s ease',
+                          }}
+                        >
+                          <div className="w-14 h-14 rounded-full bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center">
+                            <Play className="w-6 h-6 fill-white text-white translate-x-0.5" />
+                          </div>
+                        </div>
+
+                        {/* Bottom title on hover */}
+                        <div className="absolute bottom-0 left-0 right-0 p-3 z-10">
+                          <h3
+                            className="text-xs font-bold text-white leading-snug"
+                            style={{
+                              display: '-webkit-box',
+                              WebkitLineClamp: isHovered ? 3 : 2,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
+                            }}
+                          >
+                            {vid.title}
+                          </h3>
+                        </div>
+                      </div>
+
+                      {/* Action bar */}
+                      <div
+                        className="px-3 py-2.5 flex items-center gap-1.5 bg-zinc-950"
+                        style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}
+                      >
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setSelectedVideo(vid); }}
+                          className="flex-1 py-1.5 rounded-xl bg-indigo-600/90 hover:bg-indigo-500 text-white text-[11px] font-bold flex items-center justify-center gap-1 transition-all"
+                        >
+                          <Play className="w-3 h-3 fill-white" />
+                          <span>Play</span>
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleCopy(vid.id, useProxy ? vid.proxyStreamUrl : vid.streamUrl); }}
+                          className="p-1.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.09] border border-white/[0.07] text-zinc-400 hover:text-white transition-all"
+                        >
+                          {copiedId === vid.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                        </button>
+                        <a
+                          href={`${vid.proxyStreamUrl}&download=true`}
+                          download
+                          onClick={(e) => e.stopPropagation()}
+                          className="p-1.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.09] border border-white/[0.07] text-zinc-400 hover:text-white transition-all"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                        </a>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Empty after filter */}
+            {!isLoading && !isPaginating && result && filteredVideos.length === 0 && result.videos.length > 0 && (
+              <div className="py-16 text-center">
+                <p className="text-zinc-600 text-sm">No results match "{searchQuery}"</p>
+                <button onClick={() => setSearchQuery('')} className="mt-3 text-xs text-indigo-400 hover:text-indigo-300">
+                  Clear filter
+                </button>
+              </div>
+            )}
+
+            {/* Pagination */}
+            {!isLoading && !isPaginating && result && result.videos.length > 0 && (
+              <div className="mt-6 mb-12 flex items-center justify-center gap-6">
+                {currentPage > 1 && (
+                  <button
+                    onClick={() => handleNavigatePage(currentPage - 1)}
+                    disabled={isPaginating}
+                    className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-white/[0.05] hover:bg-white/[0.08] border border-white/[0.08] text-white text-sm font-semibold transition-all active:scale-95"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    <span>Previous</span>
+                  </button>
+                )}
+
+                <div className="flex items-center gap-3">
+                  <span className="text-4xl font-black text-white font-mono tabular-nums">{currentPage}</span>
+                  <div className="text-zinc-700 text-xs font-mono">page</div>
+                </div>
+
+                <button
+                  onClick={() => handleNavigatePage(currentPage + 1)}
+                  disabled={isPaginating}
+                  className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-all shadow-lg shadow-indigo-600/25 active:scale-95"
+                >
+                  <span>Next</span>
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Empty / Initial State */}
+        {!result && !isLoading && !errorMessage && (
+          <div className="py-20 flex flex-col items-center justify-center text-center">
+            <div className="relative mb-8">
+              <div className="w-20 h-20 rounded-3xl bg-indigo-600/10 border border-indigo-500/20 flex items-center justify-center mx-auto">
+                <Film className="w-9 h-9 text-indigo-500/70" />
+              </div>
+              <div className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center">
+                <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              </div>
             </div>
-            <h3 className="text-sm font-bold text-white">2. Automatic Stream Extraction</h3>
-            <p className="text-xs text-zinc-400 leading-relaxed">
-              We parse HTML5 video tags, OpenGraph video cards, and embedded sources, completely stripping all ads and popups.
+            <h3 className="text-xl font-bold text-white mb-2">Ready to Extract</h3>
+            <p className="text-sm text-zinc-600 max-w-xs leading-relaxed">
+              Paste any video website URL above and click "Extract &amp; Play" to instantly find all streamable videos.
             </p>
-          </div>
-
-          <div className="p-5 rounded-2xl glass-panel border border-zinc-800/80 bg-zinc-950/60 flex flex-col space-y-2">
-            <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-              <ShieldCheck className="w-5 h-5" />
+            <div className="mt-8 flex flex-wrap items-center justify-center gap-2">
+              {['Any website', 'HLS streams', 'MP4 files', 'Embedded players', 'Channel pages'].map((tag) => (
+                <span key={tag} className="px-3 py-1 rounded-full bg-white/[0.04] border border-white/[0.06] text-zinc-500 text-xs">
+                  {tag}
+                </span>
+              ))}
             </div>
-            <h3 className="text-sm font-bold text-white">3. Zero-Storage Ad-Free Play</h3>
-            <p className="text-xs text-zinc-400 leading-relaxed">
-              Videos play inside our native player with speed controls, scrubbing, and full-screen. Nothing is stored in the database.
-            </p>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* Built-in Ad-Free Video Player Modal */}
+      {/* ─── Video Player Modal ──────────────────────────────────── */}
       {playerMediaItem && (
         <VideoPlayer
           media={playerMediaItem}

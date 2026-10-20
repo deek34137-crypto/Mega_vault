@@ -24,6 +24,19 @@ export interface ExtractionResult {
   sections?: ExtractedSection[];
 }
 
+export interface ListingCard {
+  url: string;
+  title: string;
+  poster?: string;
+}
+
+export interface ResolvedStreamResult {
+  stream: string;
+  poster?: string;
+  title?: string;
+  source: ExtractedVideoItem['source'];
+}
+
 export function isPrivateOrLocalHost(hostname: string): boolean {
   const host = hostname.toLowerCase().trim();
 
@@ -97,6 +110,20 @@ export function cleanTitleText(str: string): string {
     .trim();
 }
 
+export function cleanSectionName(name: string): string {
+  return name
+    .replace(/&amp;/g, '&')
+    .replace(/&#8217;|&rsquo;|&#039;|&apos;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/[^\w\s&'-]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function getFormatAndMime(url: string): { format: string; mimeType: string } {
   const clean = url.split('?')[0].split('#')[0].toLowerCase();
   if (clean.endsWith('.mp4')) return { format: 'MP4', mimeType: 'video/mp4' };
@@ -108,14 +135,41 @@ export function getFormatAndMime(url: string): { format: string; mimeType: strin
   return { format: 'VIDEO', mimeType: 'video/mp4' };
 }
 
-interface ResolvedStreamResult {
-  stream: string;
-  poster?: string;
-  title?: string;
-  source: ExtractedVideoItem['source'];
+/**
+ * Lightweight safe Dean Edwards p.a.c.k.e.r unpacker
+ */
+export function unpackPackedJs(packedCode: string): string | null {
+  try {
+    const packerRegex = /eval\(function\(p,a,c,k,e,[rd]\)\{.*?return p\}\('([\s\S]*?)',(\d+),(\d+),'([\s\S]*?)'\.split\('\|'\)/;
+    const match = packedCode.match(packerRegex);
+    if (!match) return null;
+
+    let [, p, aStr, cStr, kStr] = match;
+    const a = parseInt(aStr, 10);
+    let c = parseInt(cStr, 10);
+    const k = kStr.split('|');
+
+    const encode = (val: number): string => {
+      const prefix = val < a ? '' : encode(Math.floor(val / a));
+      const rem = val % a;
+      return prefix + (rem > 35 ? String.fromCharCode(rem + 29) : rem.toString(36));
+    };
+
+    while (c--) {
+      if (k[c]) {
+        const word = encode(c);
+        p = p.replace(new RegExp('\\b' + word + '\\b', 'g'), k[c]);
+      }
+    }
+    return p;
+  } catch {
+    return null;
+  }
 }
 
-// Deep resolver for a single video page or iframe
+/**
+ * Deep resolver for a single video page or iframe
+ */
 export async function resolvePageStream(pageUrl: string, referer?: string): Promise<ResolvedStreamResult | null> {
   try {
     const controller = new AbortController();
@@ -164,15 +218,21 @@ export async function resolvePageStream(pageUrl: string, referer?: string): Prom
       }
     }
 
-    // 2. Base64 & Child Embed Iframes (Desihub downloaddirect, Mastiraja clean-tube-player, etc.)
-    const iframeMatches = [...html.matchAll(/<iframe[^>]+src=["']([^"']+)["']/gi)];
+    // 2. Base64 & Child Embed Iframes (Desihub downloaddirect, Mastiraja clean-tube-player, Streamtape, StreamSB, etc.)
+    const iframeMatches = [...html.matchAll(/<iframe[^>]+(?:src|data-src)=["']([^"']+)["']/gi)];
     for (const m of iframeMatches) {
       const iframeSrc = m[1];
       if (
         iframeSrc.includes('q=') ||
         iframeSrc.includes('player') ||
         iframeSrc.includes('embed') ||
-        iframeSrc.includes('video')
+        iframeSrc.includes('video') ||
+        iframeSrc.includes('streamtape') ||
+        iframeSrc.includes('streamsb') ||
+        iframeSrc.includes('sbembed') ||
+        iframeSrc.includes('dood') ||
+        iframeSrc.includes('mixdrop') ||
+        iframeSrc.includes('supervideo')
       ) {
         // 2a. Check for base64 encoded query parameter
         try {
@@ -192,7 +252,7 @@ export async function resolvePageStream(pageUrl: string, referer?: string): Prom
           }
         } catch {}
 
-        // 2b. Fetch external embed iframe (e.g. downloaddirect.xyz/embed/<uuid>)
+        // 2b. Fetch external embed iframe
         try {
           const embedUrl = resolveUrl(iframeSrc, finalUrl);
           if (embedUrl) {
@@ -207,17 +267,52 @@ export async function resolvePageStream(pageUrl: string, referer?: string): Prom
               });
               if (ifRes.ok) {
                 const ifHtml = await ifRes.text();
+
+                // Check HTML5 video/source inside iframe
                 const srcMatch =
                   ifHtml.match(/<source[^>]+src=["']([^"']+)["']/i) ||
                   ifHtml.match(/<video[^>]+src=["']([^"']+)["']/i) ||
+                  ifHtml.match(/sources\s*:\s*\[[\s\S]*?file\s*:\s*['"]([^'"]+\.(?:mp4|m3u8|webm)[^'"]*)['"]/i) ||
+                  ifHtml.match(/['"]?file['"]?\s*:\s*['"]([^'"]+\.(?:mp4|m3u8|webm)[^'"]*)['"]/i) ||
+                  ifHtml.match(/(?:var|let|const|window\.[a-zA-Z0-9_$]+|[a-zA-Z0-9_$]+)\s*=\s*['"](https?:\/\/[^'"\s<>]+\.(?:mp4|m3u8|webm)(?:\?[^'"\s<>]*)?)['"]/i) ||
                   ifHtml.match(/(https?:\/\/[^\s"'<>\\]+?\.(?:mp4|m3u8)(?:\?[^\s"'<>\\]*)?)/i);
-                const ifPoster = ifHtml.match(/poster=["']([^"']+)["']/i);
+
+                const ifPoster = ifHtml.match(/poster=["']([^"']+)["']/i) || ifHtml.match(/image\s*:\s*['"]([^'"]+)['"]/i);
+
                 if (srcMatch) {
                   const stream = resolveUrl(srcMatch[1], embedUrl);
-                  if (stream) {
+                  if (stream && !stream.includes('.js') && !stream.includes('.css')) {
                     const poster = ifPoster ? resolveUrl(ifPoster[1], embedUrl) || undefined : undefined;
                     return { stream, poster, source: 'iframe' };
                   }
+                }
+
+                // Check packed script inside iframe
+                const packedIf = ifHtml.match(/eval\(function\(p,a,c,k,e,[rd]\)\{[\s\S]*?\.split\('\|'\)\)\)/i);
+                if (packedIf) {
+                  const unpacked = unpackPackedJs(packedIf[0]);
+                  if (unpacked) {
+                    const unpackedSrc =
+                      unpacked.match(/sources\s*:\s*\[[\s\S]*?file\s*:\s*['"]([^'"]+\.(?:mp4|m3u8|webm)[^'"]*)['"]/i) ||
+                      unpacked.match(/['"]?file['"]?\s*:\s*['"]([^'"]+\.(?:mp4|m3u8|webm)[^'"]*)['"]/i) ||
+                      unpacked.match(/(https?:\/\/[^\s"'<>\\]+?\.(?:mp4|m3u8)(?:\?[^\s"'<>\\]*)?)/i);
+                    if (unpackedSrc) {
+                      const stream = resolveUrl(unpackedSrc[1], embedUrl);
+                      if (stream) return { stream, source: 'iframe' };
+                    }
+                  }
+                }
+
+                // Check Streamtape inside iframe
+                const robotMatch =
+                  ifHtml.match(/id=["'](?:robotlink|videolink)["'][^>]*>([^<]+)<\//i) ||
+                  ifHtml.match(/document\.getElementById\(['"](?:robotlink|videolink)['"]\)\.innerHTML\s*=\s*['"]([^'"]+)['"]\s*(?:\+\s*['"]([^'"]+)['"])?/i);
+                if (robotMatch) {
+                  let partial = robotMatch[1];
+                  if (robotMatch[2]) partial += robotMatch[2];
+                  if (partial.startsWith('//')) partial = 'https:' + partial;
+                  const stream = resolveUrl(partial, embedUrl);
+                  if (stream) return { stream, source: 'iframe' };
                 }
               }
             }
@@ -237,15 +332,85 @@ export async function resolvePageStream(pageUrl: string, referer?: string): Prom
       }
     }
 
-    // 4. Player config scripts (JWPlayer / Plyr / VideoJS)
-    const jwMatch = html.match(/['"]?file['"]?\s*:\s*['"]([^'"]+\.(?:mp4|m3u8|webm)[^'"]*)['"]/i) ||
-                    html.match(/['"]?src['"]?\s*:\s*['"]([^'"]+\.(?:mp4|m3u8|webm)[^'"]*)['"]/i);
-    if (jwMatch) {
-      const stream = resolveUrl(jwMatch[1], finalUrl);
+    // 4. JWPlayer & Plyr patterns: file:, sources: [{file:...}]
+    const jwSourcesMatch =
+      html.match(/sources\s*:\s*\[[\s\S]*?file\s*:\s*['"]([^'"]+\.(?:mp4|m3u8|webm)[^'"]*)['"]/i) ||
+      html.match(/sources\s*:\s*\[\s*\{[^}]*?file\s*:\s*['"]([^'"]+)['"]/i) ||
+      html.match(/sources\s*:\s*\[\s*\{[^}]*?src\s*:\s*['"]([^'"]+)['"]/i);
+    const jwPosterMatch = html.match(/image\s*:\s*['"]([^'"]+)['"]/i);
+
+    if (jwSourcesMatch) {
+      const stream = resolveUrl(jwSourcesMatch[1], finalUrl);
+      if (stream) {
+        const poster = jwPosterMatch ? resolveUrl(jwPosterMatch[1], finalUrl) || undefined : undefined;
+        return { stream, poster, source: 'script' };
+      }
+    }
+
+    const jwFileMatch =
+      html.match(/['"]?file['"]?\s*:\s*['"]([^'"]+\.(?:mp4|m3u8|webm)[^'"]*)['"]/i) ||
+      html.match(/['"]?src['"]?\s*:\s*['"]([^'"]+\.(?:mp4|m3u8|webm)[^'"]*)['"]/i);
+    if (jwFileMatch) {
+      const stream = resolveUrl(jwFileMatch[1], finalUrl);
+      if (stream) {
+        const poster = jwPosterMatch ? resolveUrl(jwPosterMatch[1], finalUrl) || undefined : undefined;
+        return { stream, poster, source: 'script' };
+      }
+    }
+
+    // 5. Streamtape / StreamSB style player scripts on page
+    const streamtapeMatch =
+      html.match(/document\.getElementById\(['"](?:robotlink|videolink|ideostream)['"]\)\.innerHTML\s*=\s*['"]([^'"]+)['"]\s*(?:\+\s*['"]([^'"]+)['"])?/i) ||
+      html.match(/id=["'](?:robotlink|videolink)["'][^>]*>([^<]+)<\//i);
+    if (streamtapeMatch) {
+      let partial = streamtapeMatch[1];
+      if (streamtapeMatch[2]) partial += streamtapeMatch[2];
+      if (partial.startsWith('//')) partial = 'https:' + partial;
+      const stream = resolveUrl(partial, finalUrl);
       if (stream) return { stream, source: 'script' };
     }
 
-    // 5. Direct script stream URLs
+    // 6. Any JS variable containing .mp4 or .m3u8 (e.g. var videoUrl = 'https://...')
+    const jsVarMatch = html.match(
+      /(?:var|let|const|window\.[a-zA-Z0-9_$]+|[a-zA-Z0-9_$]+)\s*=\s*['"](https?:\/\/[^'"\s<>]+\.(?:mp4|m3u8|webm)(?:\?[^'"\s<>]*)?)['"]/i
+    );
+    if (jsVarMatch) {
+      const stream = resolveUrl(jsVarMatch[1], finalUrl);
+      if (stream && !stream.includes('.js') && !stream.includes('.css')) {
+        return { stream, source: 'script' };
+      }
+    }
+
+    // JSON embedded object variables
+    const jsonKeyMatch = html.match(
+      /['"](?:contentUrl|videoUrl|video_url|streamUrl|stream_url|sourceUrl|source_url|fileUrl|file_url|hls_url|videoSrc)['"]\s*:\s*['"](https?:\/\/[^'"\s<>]+\.(?:mp4|m3u8|webm)(?:\?[^'"\s<>]*)?)['"]/i
+    );
+    if (jsonKeyMatch) {
+      const stream = resolveUrl(jsonKeyMatch[1], finalUrl);
+      if (stream) return { stream, source: 'script' };
+    }
+
+    // 7. Packed script unpacking (eval(function(p,a,c,k,e,d)...))
+    const packedMatches = [...html.matchAll(/eval\(function\(p,a,c,k,e,[rd]\)\{[\s\S]*?\.split\('\|'\)\)\)/gi)];
+    for (const pm of packedMatches) {
+      const unpacked = unpackPackedJs(pm[0]);
+      if (unpacked) {
+        const unpackedSrc =
+          unpacked.match(/sources\s*:\s*\[[\s\S]*?file\s*:\s*['"]([^'"]+\.(?:mp4|m3u8|webm)[^'"]*)['"]/i) ||
+          unpacked.match(/['"]?file['"]?\s*:\s*['"]([^'"]+\.(?:mp4|m3u8|webm)[^'"]*)['"]/i) ||
+          unpacked.match(/['"]?src['"]?\s*:\s*['"]([^'"]+\.(?:mp4|m3u8|webm)[^'"]*)['"]/i) ||
+          unpacked.match(/(?:var|let|const|window\.[a-zA-Z0-9_$]+|[a-zA-Z0-9_$]+)\s*=\s*['"](https?:\/\/[^'"\s<>]+\.(?:mp4|m3u8|webm)(?:\?[^'"\s<>]*)?)['"]/i) ||
+          unpacked.match(/(https?:\/\/[^\s"'<>\\]+?\.(?:mp4|m3u8)(?:\?[^\s"'<>\\]*)?)/i);
+        if (unpackedSrc) {
+          const stream = resolveUrl(unpackedSrc[1], finalUrl);
+          if (stream && !stream.includes('.js') && !stream.includes('.css')) {
+            return { stream, source: 'script' };
+          }
+        }
+      }
+    }
+
+    // 8. Direct script stream URLs
     const scriptStream = html.match(/(https?:\/\/[^\s"'<>\\]+?\.(?:mp4|m3u8)(?:\?[^\s"'<>\\]*)?)/i);
     if (scriptStream && !scriptStream[1].includes('.js') && !scriptStream[1].includes('.css')) {
       const stream = resolveUrl(scriptStream[1], finalUrl);
@@ -258,260 +423,522 @@ export async function resolvePageStream(pageUrl: string, referer?: string): Prom
   }
 }
 
-interface ListingCard {
-  url: string;
-  title: string;
-  poster?: string;
-}
-
-// Extract listing cards from channel/index page
+/**
+ * Universal Listing Cards Extractor
+ * Extracts up to 40 video listing cards from channel, category, or index pages
+ */
 export function extractListingCards(html: string, baseUrl: string): ListingCard[] {
   const cards: ListingCard[] = [];
   const seenUrls = new Set<string>();
 
-  // Pattern 1: XNXX class thumb-link / video links
-  const xnxxHrefRegex = /<a[^>]+class=["'][^"']*thumb-link[^"']*["'][^>]+href=["'](\/video-[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
-  let xm: RegExpExecArray | null;
-  while ((xm = xnxxHrefRegex.exec(html)) !== null) {
-    const postUrl = resolveUrl(xm[1], baseUrl);
-    if (postUrl && !seenUrls.has(postUrl)) {
-      seenUrls.add(postUrl);
-      const inner = xm[2];
-      const imgMatch = inner.match(/<img[^>]+(?:src|data-src)=["']([^"']+)["']/i);
-      const altMatch = inner.match(/alt=["']([^"']+)["']/i);
-      cards.push({
-        url: postUrl,
-        title: altMatch ? cleanTitleText(altMatch[1]) : 'Video',
-        poster: imgMatch ? resolveUrl(imgMatch[1].replace(/\\\//g, '/'), baseUrl) || undefined : undefined,
-      });
-    }
+  let baseParsed: URL;
+  try {
+    baseParsed = new URL(baseUrl);
+  } catch {
+    return cards;
   }
+  const baseHost = baseParsed.hostname.toLowerCase().replace(/^www\./, '');
 
-  // Pattern 2: Desihub & generic post links / Next.js cards
-  const desihubRegex = /<a[^>]+href=["'](\/post\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
-  let dm: RegExpExecArray | null;
-  while ((dm = desihubRegex.exec(html)) !== null) {
-    const postUrl = resolveUrl(dm[1], baseUrl);
-    if (postUrl && !seenUrls.has(postUrl)) {
-      seenUrls.add(postUrl);
-      const inner = dm[2];
-      const imgMatch = inner.match(/<img[^>]+(?:src|data-src)=["']([^"']+)["']/i);
-      const poster = imgMatch ? unwrapNextImage(imgMatch[1], baseUrl) : undefined;
-      const titleAttr = inner.match(/title=["']([^"']+)["']/i) || dm[0].match(/title=["']([^"']+)["']/i);
-      let textTitle = inner.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-      const rawTitle = titleAttr ? titleAttr[1] : (textTitle.length > 5 ? textTitle : 'Video');
-      cards.push({
-        url: postUrl,
-        title: cleanTitleText(rawTitle),
-        poster,
-      });
+  const isSameDomain = (urlStr: string): boolean => {
+    try {
+      const u = new URL(urlStr);
+      const h = u.hostname.toLowerCase().replace(/^www\./, '');
+      return h === baseHost || h.endsWith('.' + baseHost);
+    } catch {
+      return false;
     }
-  }
+  };
 
-  // Pattern 3: WordPress articles / tube video cards (Mastiraja, etc.)
-  const wpRegex = /<article[^>]*>([\s\S]*?)<\/article>/gi;
-  let wpm: RegExpExecArray | null;
-  while ((wpm = wpRegex.exec(html)) !== null) {
-    const art = wpm[1];
-    const linkMatch = art.match(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/i);
-    if (linkMatch) {
-      const postUrl = resolveUrl(linkMatch[1], baseUrl);
-      if (postUrl && !seenUrls.has(postUrl) && !postUrl.includes('/category/') && !postUrl.includes('/tag/')) {
-        seenUrls.add(postUrl);
-        const imgMatch = art.match(/<img[^>]+(?:src|data-src|data-lazy-src)=["']([^"']+)["']/i);
-        const poster = imgMatch ? unwrapNextImage(imgMatch[1], baseUrl) : undefined;
-        const titleMatch = art.match(/<h\d[^>]*>([\s\S]*?)<\/h\d>/i) || art.match(/title=["']([^"']+)["']/i);
-        const rawTitle = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : 'Video';
-        cards.push({
-          url: postUrl,
-          title: cleanTitleText(rawTitle),
-          poster,
-        });
-      }
+  const isLikelyPostOrVideo = (href: string): boolean => {
+    const lower = href.toLowerCase();
+    if (
+      lower.includes('/category/') ||
+      lower.includes('/categories/') ||
+      lower.includes('/tag/') ||
+      lower.includes('/tags/') ||
+      lower.includes('/genre/') ||
+      lower.includes('/genres/') ||
+      lower.includes('/channels/') ||
+      lower.includes('/user/') ||
+      lower.includes('/author/') ||
+      lower.startsWith('#') ||
+      lower.startsWith('javascript:')
+    ) {
+      return false;
     }
-  }
+    return (
+      lower.includes('/video') ||
+      lower.includes('/watch') ||
+      lower.includes('/post') ||
+      lower.includes('/movie') ||
+      lower.includes('/episode') ||
+      lower.includes('/clip') ||
+      lower.endsWith('.html') ||
+      lower.includes('.html?')
+    );
+  };
 
-  // Pattern 4: Generic card heuristic if no cards found yet
-  if (cards.length === 0) {
-    const genericLinkRegex = /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
-    let gm: RegExpExecArray | null;
-    while ((gm = genericLinkRegex.exec(html)) !== null) {
-      const href = gm[1];
-      const inner = gm[2];
+  const extractPoster = (snippet: string): string | undefined => {
+    const imgMatches = [
+      ...snippet.matchAll(/<img[^>]+(?:data-src|data-lazy|data-original|data-lazy-src|data-src-retina|src)=["']([^"']+)["']/gi),
+    ];
+    for (const m of imgMatches) {
+      let raw = m[1].replace(/\\\//g, '/').trim();
+      if (raw.includes(',')) raw = raw.split(',')[0].trim().split(/\s+/)[0];
       if (
-        (href.includes('/video') || href.includes('/watch') || href.includes('/post') || href.includes('.html')) &&
-        !href.includes('/tag/') &&
-        !href.includes('/category/') &&
-        !href.startsWith('#') &&
-        !href.startsWith('javascript:')
+        !raw.startsWith('data:') &&
+        !raw.startsWith('blob:') &&
+        !raw.endsWith('.svg') &&
+        !raw.includes('/avatar/') &&
+        !raw.includes('/icon') &&
+        !raw.includes('favicon')
       ) {
-        const postUrl = resolveUrl(href, baseUrl);
-        if (postUrl && !seenUrls.has(postUrl)) {
-          seenUrls.add(postUrl);
-          const imgMatch = inner.match(/<img[^>]+(?:src|data-src)=["']([^"']+)["']/i);
-          const poster = imgMatch ? unwrapNextImage(imgMatch[1], baseUrl) : undefined;
-          const cleanText = inner.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-          cards.push({
-            url: postUrl,
-            title: cleanTitleText(cleanText.length > 5 ? cleanText : 'Video'),
-            poster,
-          });
-        }
+        const unwrapped = unwrapNextImage(raw, baseUrl);
+        if (unwrapped) return unwrapped;
+      }
+    }
+    const posterMatch = snippet.match(/poster=["']([^"']+)["']/i);
+    if (posterMatch) {
+      return resolveUrl(posterMatch[1], baseUrl) || undefined;
+    }
+    return undefined;
+  };
+
+  const extractTitle = (snippet: string, innerText?: string): string => {
+    // 1. Heading tags
+    const hMatch = snippet.match(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/i);
+    if (hMatch) {
+      const t = cleanTitleText(hMatch[1]);
+      if (t.length > 2 && t !== 'Video') return t;
+    }
+    // 2. Title attribute
+    const titleAttr = snippet.match(/title=["']([^"']+)["']/i);
+    if (titleAttr) {
+      const t = cleanTitleText(titleAttr[1]);
+      if (t.length > 2 && t !== 'Video') return t;
+    }
+    // 3. Alt attribute
+    const altAttr = snippet.match(/alt=["']([^"']+)["']/i);
+    if (altAttr) {
+      const t = cleanTitleText(altAttr[1]);
+      if (t.length > 2 && t !== 'Video') return t;
+    }
+    // 4. Inner link text
+    if (innerText) {
+      const t = cleanTitleText(innerText);
+      if (t.length > 3 && t !== 'Video') return t;
+    }
+    // 5. Clean text inside snippet
+    const stripped = snippet.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    if (stripped.length > 4 && stripped.length < 120) {
+      return cleanTitleText(stripped);
+    }
+    return 'Video';
+  };
+
+  const addCard = (cardUrl: string, title: string, poster?: string) => {
+    if (cards.length >= 40) return;
+    const resolved = resolveUrl(cardUrl, baseUrl);
+    if (!resolved) return;
+    const clean = resolved.replace(/\/+$/, '');
+    if (seenUrls.has(clean)) return;
+    if (!isSameDomain(clean)) return;
+
+    seenUrls.add(clean);
+    cards.push({
+      url: resolved,
+      title: title || 'Video',
+      poster,
+    });
+  };
+
+  // --- Priority 1: Containers (<article>, div class=*card*, div class=*item*, div class=*thumb*, li class=*video*) ---
+  const containerRegex = /<(?:article|div|li)[^>]+class=["'][^"']*(?:card|item|thumb|video)[^"']*["'][^>]*>([\s\S]*?)<\/(?:article|div|li)>/gi;
+  let cm: RegExpExecArray | null;
+  while ((cm = containerRegex.exec(html)) !== null) {
+    if (cards.length >= 40) break;
+    const containerSnippet = cm[1];
+    const linkMatches = [...containerSnippet.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)];
+    let bestLink = linkMatches.find((m) => isLikelyPostOrVideo(m[1]));
+    if (!bestLink && linkMatches.length > 0) {
+      bestLink = linkMatches.find((m) => /<img/i.test(m[2])) || linkMatches[0];
+    }
+    if (bestLink) {
+      const href = bestLink[1];
+      const poster = extractPoster(containerSnippet);
+      const title = extractTitle(containerSnippet, bestLink[2]);
+      addCard(href, title, poster);
+    }
+  }
+
+  // Also check <article> tags without class restrictions
+  const articleRegex = /<article[^>]*>([\s\S]*?)<\/article>/gi;
+  let am: RegExpExecArray | null;
+  while ((am = articleRegex.exec(html)) !== null) {
+    if (cards.length >= 40) break;
+    const artSnippet = am[1];
+    const linkMatches = [...artSnippet.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)];
+    const bestLink = linkMatches.find((m) => isLikelyPostOrVideo(m[1])) || linkMatches[0];
+    if (bestLink) {
+      const href = bestLink[1];
+      const poster = extractPoster(artSnippet);
+      const title = extractTitle(artSnippet, bestLink[2]);
+      addCard(href, title, poster);
+    }
+  }
+
+  // --- Priority 2: <a> tags with href containing /video, /watch, /post, /movie, /episode, /clip, .html that contain an <img> child ---
+  const linkWithImgRegex = /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let lm: RegExpExecArray | null;
+  while ((lm = linkWithImgRegex.exec(html)) !== null) {
+    if (cards.length >= 40) break;
+    const href = lm[1];
+    const inner = lm[2];
+    if (/<img/i.test(inner) && isLikelyPostOrVideo(href)) {
+      const poster = extractPoster(inner);
+      const title = extractTitle(lm[0], inner);
+      addCard(href, title, poster);
+    }
+  }
+
+  // --- Priority 3: Any <a> with same-domain href that wraps an <img> element ---
+  const anyLinkWithImgRegex = /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let alm: RegExpExecArray | null;
+  while ((alm = anyLinkWithImgRegex.exec(html)) !== null) {
+    if (cards.length >= 40) break;
+    const href = alm[1];
+    const inner = alm[2];
+    if (/<img/i.test(inner)) {
+      if (
+        !href.startsWith('#') &&
+        !href.startsWith('javascript:') &&
+        !href.includes('/category/') &&
+        !href.includes('/tag/')
+      ) {
+        const poster = extractPoster(inner);
+        const title = extractTitle(alm[0], inner);
+        addCard(href, title, poster);
       }
     }
   }
 
-  return cards;
+  return cards.slice(0, 40);
 }
 
-export function cleanSectionName(name: string): string {
-  return name
-    .replace(/&amp;/g, '&')
-    .replace(/&#8217;|&rsquo;|&#039;|&apos;/g, "'")
-    .replace(/&quot;/g, '"')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/[^\w\s&'-]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
+/**
+ * Universal Section Extraction
+ * Detects website navigation/menu links generically (up to 30 sections)
+ */
 export function extractSiteSections(html: string, baseUrl: string): ExtractedSection[] {
   const sections: ExtractedSection[] = [
-    { id: 'home', name: 'Homepage (All)', url: baseUrl }
+    { id: 'home', name: 'Homepage (All)', url: baseUrl },
   ];
   const seenUrls = new Set<string>([baseUrl.replace(/\/+$/, '')]);
+  const seenNames = new Set<string>(['homepage (all)', 'home']);
 
-  const links = [...html.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)];
-  for (const m of links) {
-    const rawHref = m[1];
-    const text = m[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  let baseParsed: URL;
+  try {
+    baseParsed = new URL(baseUrl);
+  } catch {
+    return sections;
+  }
+  const baseHost = baseParsed.hostname.toLowerCase().replace(/^www\./, '');
 
+  const isValidCandidate = (href: string) => {
     if (
-      !rawHref ||
-      rawHref.startsWith('#') ||
-      rawHref.startsWith('javascript:') ||
-      rawHref.startsWith('tg:') ||
-      rawHref.startsWith('mailto:')
+      !href ||
+      href.startsWith('#') ||
+      href.startsWith('javascript:') ||
+      href.startsWith('mailto:') ||
+      href.startsWith('tg:') ||
+      href.startsWith('tel:')
     ) {
-      continue;
+      return null;
+    }
+    try {
+      const full = new URL(href, baseUrl);
+      const host = full.hostname.toLowerCase().replace(/^www\./, '');
+      if (host !== baseHost && !host.endsWith('.' + baseHost)) {
+        return null;
+      }
+      const p = full.pathname.toLowerCase();
+      // Must NOT contain post-level patterns
+      if (
+        p.includes('/post/') ||
+        p.includes('/video-') ||
+        p.includes('/watch/') ||
+        p.includes('/article/') ||
+        p.endsWith('.mp4') ||
+        p.endsWith('.m3u8') ||
+        p.endsWith('.jpg') ||
+        p.endsWith('.png') ||
+        p.endsWith('.webp') ||
+        p.endsWith('.css') ||
+        p.endsWith('.js')
+      ) {
+        return null;
+      }
+      return full;
+    } catch {
+      return null;
+    }
+  };
+
+  const SECTION_KEYWORDS = [
+    '/category/',
+    '/categories/',
+    '/genre/',
+    '/genres/',
+    '/tags/',
+    '/tag/',
+    '/explore',
+    '/trending',
+    '/popular',
+    '/new',
+    '/latest',
+    '/best',
+    '/hits',
+    '/feed',
+    '/browse',
+    '/series',
+    '/collections',
+    '/playlists',
+    '/all',
+    '/top',
+    '/channels',
+    '/channels/',
+    '/movies',
+    '/videos',
+  ];
+
+  const NAV_WORDS = new Set([
+    'home',
+    'videos',
+    'video',
+    'movies',
+    'movie',
+    'series',
+    'latest',
+    'top',
+    'new',
+    'hot',
+    'trending',
+    'popular',
+    'best',
+    'hits',
+    'explore',
+    'browse',
+    'feed',
+    'channels',
+    'categories',
+    'category',
+    'genres',
+    'genre',
+    'playlists',
+    'collections',
+    'all',
+    'featured',
+    'recent',
+    'most viewed',
+    'recommended',
+    'top rated',
+    'hall of fame',
+    'tags',
+    'all videos',
+  ]);
+
+  const IGNORE_WORDS = new Set([
+    'privacy',
+    'terms',
+    'privacy policy',
+    'terms of service',
+    'dmca',
+    'contact',
+    'contact us',
+    'about',
+    'about us',
+    'login',
+    'log in',
+    'sign in',
+    'signup',
+    'sign up',
+    'register',
+    'faq',
+    'support',
+    'help',
+    'copyright',
+    'disclaimer',
+    'upload',
+    'rss',
+    'sitemap',
+    '2257',
+    'feedback',
+    'cookie policy',
+  ]);
+
+  const tryAddSection = (rawHref: string, rawText: string, requirePattern = false): boolean => {
+    if (sections.length >= 30) return false;
+
+    const fullUrlObj = isValidCandidate(rawHref);
+    if (!fullUrlObj) return false;
+
+    const fullUrl = fullUrlObj.href;
+    const cleanUrl = fullUrl.replace(/\/+$/, '');
+    if (seenUrls.has(cleanUrl)) return false;
+
+    let label = cleanSectionName(rawText);
+    const path = fullUrlObj.pathname.toLowerCase();
+    const search = fullUrlObj.search.toLowerCase();
+
+    if (!label || label.length < 2) {
+      const segments = path.split('/').filter(Boolean);
+      const lastSeg = segments[segments.length - 1];
+      if (lastSeg && !lastSeg.match(/^\d+$/)) {
+        label = cleanSectionName(lastSeg.replace(/[-_]/g, ' '));
+      }
     }
 
-    try {
-      const fullUrl = new URL(rawHref, baseUrl).href;
-      const cleanUrl = fullUrl.replace(/\/+$/, '');
-      if (seenUrls.has(cleanUrl)) continue;
+    if (!label || label.length < 2 || label.length > 30) return false;
 
-      const path = new URL(fullUrl).pathname.toLowerCase();
-      const search = new URL(fullUrl).search.toLowerCase();
+    const lowerLabel = label.toLowerCase();
+    if (IGNORE_WORDS.has(lowerLabel)) return false;
+    if (seenNames.has(lowerLabel)) return false;
 
-      let isSection = false;
-      let matchedName = text;
+    if (requirePattern) {
+      const matchesPattern = SECTION_KEYWORDS.some((kw) => path.includes(kw) || search.includes(kw.replace(/^\//, '')));
+      const isNavWord = NAV_WORDS.has(lowerLabel);
+      if (!matchesPattern && !isNavWord) return false;
+    }
 
-      // Special known sections
-      if (path.includes('/explore')) {
-        isSection = true;
-        if (!matchedName || matchedName.length > 20) matchedName = 'Explore';
-      } else if (path.includes('/feed')) {
-        isSection = true;
-        if (!matchedName || matchedName.length > 20) matchedName = 'Feed';
-      } else if (path.includes('/popular') || search.includes('filter=popular')) {
-        isSection = true;
-        if (!matchedName || matchedName.length > 20) matchedName = 'Popular';
-      } else if (path.includes('/trending')) {
-        isSection = true;
-        if (!matchedName || matchedName.length > 20) matchedName = 'Trending';
-      } else if (path.includes('/hits')) {
-        isSection = true;
-        if (!matchedName || matchedName.length > 20) matchedName = 'Hits';
-      } else if (path.includes('/best')) {
-        isSection = true;
-        if (!matchedName || matchedName.length > 20) matchedName = 'Best Of';
-      } else if (path.includes('/todays-selection')) {
-        isSection = true;
-        if (!matchedName || matchedName.length > 20) matchedName = "Today's Selection";
-      } else if (path.includes('/category/') || path.includes('/categories/')) {
-        isSection = true;
-        if (!matchedName || matchedName.length > 25) {
-          const catSlug = path.split('/category/')[1]?.split('/')[0] || 'Category';
-          matchedName = catSlug.replace(/[-_]/g, ' ');
-        }
-      } else if (
-        text.toLowerCase() === 'explore' ||
-        text.toLowerCase() === 'feed' ||
-        text.toLowerCase() === 'popular' ||
-        text.toLowerCase() === 'trending' ||
-        text.toLowerCase() === 'best' ||
-        text.toLowerCase() === 'hits'
-      ) {
-        isSection = true;
+    const formattedLabel = label.charAt(0).toUpperCase() + label.slice(1);
+
+    seenUrls.add(cleanUrl);
+    seenNames.add(lowerLabel);
+    const id = 'sec_' + Buffer.from(cleanUrl).toString('base64url').slice(0, 10);
+    sections.push({
+      id,
+      name: formattedLabel,
+      url: fullUrl,
+    });
+    return true;
+  };
+
+  // Phase 1: Parse <nav>, <header>, elements with class containing 'nav', 'menu', 'header', 'sidebar' first (priority zone)
+  const priorityZonePatterns = [
+    /<nav[^>]*>([\s\S]*?)<\/nav>/gi,
+    /<header[^>]*>([\s\S]*?)<\/header>/gi,
+    /<(?:div|aside|ul|ol|section)[^>]+class=["'][^"']*(?:nav|menu|header|sidebar)[^"']*["'][^>]*>([\s\S]*?)<\/(?:div|aside|ul|ol|section)>/gi,
+  ];
+
+  for (const zoneRegex of priorityZonePatterns) {
+    let zoneMatch: RegExpExecArray | null;
+    while ((zoneMatch = zoneRegex.exec(html)) !== null) {
+      const zoneHtml = zoneMatch[1];
+      const linkRegex = /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+      let lm: RegExpExecArray | null;
+      while ((lm = linkRegex.exec(zoneHtml)) !== null) {
+        const href = lm[1];
+        const innerText = lm[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        const titleAttr = lm[0].match(/title=["']([^"']+)["']/i)?.[1] || '';
+        const textToUse = innerText || titleAttr;
+        tryAddSection(href, textToUse, false);
+        if (sections.length >= 30) return sections;
       }
-
-      if (isSection && matchedName && matchedName.length <= 30 && !path.includes('/post/') && !path.includes('/video-')) {
-        seenUrls.add(cleanUrl);
-        const cleanedTitle = cleanSectionName(matchedName);
-        const id = 'sec_' + Buffer.from(cleanUrl).toString('base64url').slice(0, 10);
-        sections.push({
-          id,
-          name: cleanedTitle,
-          url: fullUrl,
-        });
-      }
-    } catch {}
+    }
   }
 
-  return sections.slice(0, 15);
+  // Phase 2: Fall back to ALL links in page (filtering by category/section patterns or nav words)
+  const allLinksRegex = /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let am: RegExpExecArray | null;
+  while ((am = allLinksRegex.exec(html)) !== null) {
+    const href = am[1];
+    const innerText = am[2].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    const titleAttr = am[0].match(/title=["']([^"']+)["']/i)?.[1] || '';
+    const textToUse = innerText || titleAttr;
+    tryAddSection(href, textToUse, true);
+    if (sections.length >= 30) return sections;
+  }
+
+  return sections;
 }
 
+/**
+ * Universal Pagination URL Builder
+ * Generates paged URLs for any website
+ */
 export function buildPagedUrl(baseUrl: string, page: number): string {
   const clean = baseUrl.trim();
-  if (page <= 1) return clean;
+  if (!clean) return clean;
 
-  const parsed = new URL(clean);
-  const host = parsed.hostname.toLowerCase();
-  const path = parsed.pathname;
+  const targetPage = Math.max(1, page);
 
-  // Desihub specific
-  if (host.includes('desihub')) {
-    if (path.includes('/explore/')) {
-      return new URL(path.replace(/\/explore\/\d+/, `/explore/${page}`) + parsed.search, parsed.origin).href;
+  try {
+    const parsed = new URL(clean);
+    const host = parsed.hostname.toLowerCase();
+    const path = parsed.pathname;
+
+    // 1. If URL has ?page=N -> update page param
+    if (parsed.searchParams.has('page')) {
+      const nextParsed = new URL(clean);
+      nextParsed.searchParams.set('page', String(targetPage));
+      return nextParsed.href;
     }
-    return new URL(`/explore/${page}`, parsed.origin).href;
-  }
 
-  // XNXX specific
-  if (host.includes('xnxx')) {
+    // 2. If URL has ?p=N -> update p param
+    if (parsed.searchParams.has('p')) {
+      const nextParsed = new URL(clean);
+      nextParsed.searchParams.set('p', String(targetPage));
+      return nextParsed.href;
+    }
+
+    // 3. Desihub /explore/N
+    if (host.includes('desihub')) {
+      if (path.includes('/explore/')) {
+        const newPath = path.replace(/\/explore\/\d+/, `/explore/${targetPage}`);
+        return new URL(newPath + parsed.search, parsed.origin).href;
+      }
+      return new URL(`/explore/${targetPage}` + parsed.search, parsed.origin).href;
+    }
+
+    // 4. XNXX (0-indexed page number at end of path)
+    if (host.includes('xnxx')) {
+      const xnxxPage = targetPage - 1;
+      const cleanPath = path.replace(/\/+$/, '');
+      if (cleanPath.match(/\/\d+$/)) {
+        return new URL(cleanPath.replace(/\/\d+$/, `/${xnxxPage}`) + parsed.search, parsed.origin).href;
+      }
+      return new URL(`${cleanPath}/${xnxxPage}` + parsed.search, parsed.origin).href;
+    }
+
+    // 5. If path contains /page/N/ -> replace N
+    if (path.match(/\/page\/\d+/i)) {
+      const newPath = path.replace(/\/page\/\d+\/?/i, `/page/${targetPage}/`);
+      return new URL(newPath + parsed.search, parsed.origin).href;
+    }
+
+    // 6. If path ends with /N (number, not video/post/watch/article) -> replace N
+    const isPostOrVideo = /\/(?:post|video|watch|article|clip|item)[-_/]/i.test(path);
+    if (!isPostOrVideo && path.match(/\/\d+\/?$/)) {
+      const newPath = path.replace(/\/\d+\/?$/, `/${targetPage}/`);
+      return new URL(newPath + parsed.search, parsed.origin).href;
+    }
+
+    // If page is 1 and no existing pagination in URL, return original clean URL
+    if (targetPage === 1) {
+      return clean;
+    }
+
+    // 7. Default: append /page/N/ to clean path
     const cleanPath = path.replace(/\/+$/, '');
-    if (cleanPath.match(/\/\d+$/)) {
-      return new URL(cleanPath.replace(/\/\d+$/, `/${page - 1}`) + parsed.search, parsed.origin).href;
-    }
-    return new URL(`${cleanPath}/${page - 1}` + parsed.search, parsed.origin).href;
+    return new URL(`${cleanPath}/page/${targetPage}/` + parsed.search, parsed.origin).href;
+  } catch {
+    return clean;
   }
-
-  // WordPress / standard pagination (/page/2/)
-  if (path.includes('/page/')) {
-    const newPath = path.replace(/\/page\/\d+\/?/, `/page/${page}/`);
-    return new URL(newPath + parsed.search, parsed.origin).href;
-  }
-
-  // Path ending in number (e.g. /category/12)
-  if (path.match(/\/\d+\/?$/) && !path.includes('/post/') && !path.includes('/video-')) {
-    const newPath = path.replace(/\/\d+\/?$/, `/${page}/`);
-    return new URL(newPath + parsed.search, parsed.origin).href;
-  }
-
-  // URL has query param page or p
-  if (parsed.searchParams.has('page') || parsed.searchParams.has('p')) {
-    const nextParsed = new URL(clean);
-    if (nextParsed.searchParams.has('page')) nextParsed.searchParams.set('page', String(page));
-    if (nextParsed.searchParams.has('p')) nextParsed.searchParams.set('p', String(page));
-    return nextParsed.href;
-  }
-
-  // Default WordPress style /page/N/
-  const cleanPath = path.replace(/\/+$/, '');
-  return new URL(`${cleanPath}/page/${page}/` + parsed.search, parsed.origin).href;
 }
 
+/**
+ * Universal Video & Stream Extractor from Web Page
+ */
 export async function extractVideosFromUrl(targetUrl: string): Promise<ExtractionResult> {
   let cleanUrl = targetUrl.trim();
   if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
@@ -582,7 +1009,7 @@ export async function extractVideosFromUrl(targetUrl: string): Promise<Extractio
   }
 
   const rawHtml = await response.text();
-  let html = rawHtml.slice(0, 3 * 1024 * 1024);
+  const html = rawHtml.slice(0, 3 * 1024 * 1024);
 
   // Extract Page Title
   let pageTitle = '';
@@ -724,7 +1151,7 @@ export async function extractVideosFromUrl(targetUrl: string): Promise<Extractio
     } catch {}
   }
 
-  // --- Step 5: Listing Cards Resolution (If root is a channel/listing page like desihub.sh, mastiraja.io, xnxx.health) ---
+  // --- Step 5: Listing Cards Resolution (up to 40 cards, parallel batches of 6) ---
   if (extractedVideos.length === 0) {
     let cards = extractListingCards(html, finalUrl);
 
@@ -754,9 +1181,9 @@ export async function extractVideosFromUrl(targetUrl: string): Promise<Extractio
     }
 
     if (cards.length > 0) {
-      // Resolve up to 16 cards concurrently in batches of 4
-      const topCards = cards.slice(0, 16);
-      const batchSize = 4;
+      // Resolve up to 40 cards concurrently in parallel batches of 6
+      const topCards = cards.slice(0, 40);
+      const batchSize = 6;
 
       for (let i = 0; i < topCards.length; i += batchSize) {
         const batch = topCards.slice(i, i + batchSize);
@@ -790,7 +1217,7 @@ export async function extractVideosFromUrl(targetUrl: string): Promise<Extractio
     mainPoster = extractedVideos[0].posterUrl;
   }
 
-  // Extract site navigation sections & categories
+  // Extract site navigation sections & categories (up to 30)
   const sections = extractSiteSections(html, finalUrl);
 
   return {
