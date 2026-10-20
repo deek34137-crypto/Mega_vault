@@ -233,10 +233,14 @@ async function ensureTursoSchema(client: Client): Promise<void> {
       url TEXT NOT NULL,
       poster_url TEXT,
       video_count INTEGER DEFAULT 0,
+      sections TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT
     );
   `);
+  try {
+    await client.execute(`ALTER TABLE saved_sites ADD COLUMN sections TEXT;`);
+  } catch {}
   await client.execute(`
     CREATE TABLE IF NOT EXISTS saved_site_videos (
       id TEXT PRIMARY KEY,
@@ -320,6 +324,7 @@ function getLocalDb(): Database.Database {
         url TEXT NOT NULL,
         poster_url TEXT,
         video_count INTEGER DEFAULT 0,
+        sections TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT
       );
@@ -349,6 +354,9 @@ function getLocalDb(): Database.Database {
     } catch {}
     try {
       localDb.exec(`ALTER TABLE albums ADD COLUMN cover_image_url TEXT;`);
+    } catch {}
+    try {
+      localDb.exec(`ALTER TABLE saved_sites ADD COLUMN sections TEXT;`);
     } catch {}
   }
   return localDb;
@@ -1265,12 +1273,19 @@ export async function verifyAndConsumeAccessToken(token: string, clientIp: strin
 // SAVED WEBSITES & ZERO-DOWNLOAD STREAM CHANNELS
 // ==========================================
 
+export interface ExtractedSection {
+  id: string;
+  name: string;
+  url: string;
+}
+
 export interface SavedSite {
   id: string;
   nickname: string;
   url: string;
   poster_url?: string | null;
   video_count: number;
+  sections?: ExtractedSection[];
   created_at: string;
   updated_at?: string | null;
 }
@@ -1289,17 +1304,28 @@ export interface SavedSiteVideo {
   site_nickname?: string;
 }
 
+function parseSections(raw: any): ExtractedSection[] {
+  if (!raw) return [];
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 export async function createSavedSite(site: SavedSite): Promise<void> {
   const encUrl = encryptText(site.url);
+  const sectionsJson = site.sections && site.sections.length > 0 ? JSON.stringify(site.sections) : null;
 
   const client = getTursoClient();
   if (client) {
     try {
       await ensureTursoSchema(client);
       await client.execute({
-        sql: `INSERT OR REPLACE INTO saved_sites (id, nickname, url, poster_url, video_count, created_at, updated_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        args: [site.id, site.nickname, encUrl, site.poster_url || null, site.video_count || 0, site.created_at, site.updated_at || site.created_at],
+        sql: `INSERT OR REPLACE INTO saved_sites (id, nickname, url, poster_url, video_count, sections, created_at, updated_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [site.id, site.nickname, encUrl, site.poster_url || null, site.video_count || 0, sectionsJson, site.created_at, site.updated_at || site.created_at],
       });
     } catch (e) {
       console.error('[MegaVault] Turso createSavedSite error:', e);
@@ -1309,10 +1335,10 @@ export async function createSavedSite(site: SavedSite): Promise<void> {
   try {
     const db = getLocalDb();
     const stmt = db.prepare(`
-      INSERT OR REPLACE INTO saved_sites (id, nickname, url, poster_url, video_count, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO saved_sites (id, nickname, url, poster_url, video_count, sections, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    stmt.run(site.id, site.nickname, encUrl, site.poster_url || null, site.video_count || 0, site.created_at, site.updated_at || site.created_at);
+    stmt.run(site.id, site.nickname, encUrl, site.poster_url || null, site.video_count || 0, sectionsJson, site.created_at, site.updated_at || site.created_at);
   } catch (e) {
     console.error('[MegaVault] Local DB createSavedSite error:', e);
   }
@@ -1332,6 +1358,7 @@ export async function getAllSavedSites(): Promise<SavedSite[]> {
         url: decryptText(String(row.url)),
         poster_url: row.poster_url ? String(row.poster_url) : null,
         video_count: Number(row.video_count || 0),
+        sections: parseSections(row.sections),
         created_at: String(row.created_at),
         updated_at: row.updated_at ? String(row.updated_at) : null,
       }));
@@ -1352,6 +1379,7 @@ export async function getAllSavedSites(): Promise<SavedSite[]> {
           url: decryptText(row.url),
           poster_url: row.poster_url,
           video_count: Number(row.video_count || 0),
+          sections: parseSections(row.sections),
           created_at: row.created_at,
           updated_at: row.updated_at,
         }));
@@ -1381,6 +1409,7 @@ export async function getSavedSiteById(id: string): Promise<SavedSite | null> {
           url: decryptText(String(row.url)),
           poster_url: row.poster_url ? String(row.poster_url) : null,
           video_count: Number(row.video_count || 0),
+          sections: parseSections(row.sections),
           created_at: String(row.created_at),
           updated_at: row.updated_at ? String(row.updated_at) : null,
         };
@@ -1401,6 +1430,7 @@ export async function getSavedSiteById(id: string): Promise<SavedSite | null> {
         url: decryptText(row.url),
         poster_url: row.poster_url,
         video_count: Number(row.video_count || 0),
+        sections: parseSections(row.sections),
         created_at: row.created_at,
         updated_at: row.updated_at,
       };
@@ -1433,7 +1463,14 @@ export async function deleteSavedSite(id: string): Promise<void> {
   }
 }
 
-export async function saveSiteVideos(siteId: string, videos: Omit<SavedSiteVideo, 'site_id'>[], posterUrl?: string): Promise<void> {
+export async function saveSiteVideos(
+  siteId: string,
+  videos: Omit<SavedSiteVideo, 'site_id'>[],
+  posterUrl?: string,
+  sections?: ExtractedSection[]
+): Promise<void> {
+  const sectionsJson = sections && sections.length > 0 ? JSON.stringify(sections) : null;
+
   const client = getTursoClient();
   if (client) {
     try {
@@ -1447,8 +1484,8 @@ export async function saveSiteVideos(siteId: string, videos: Omit<SavedSiteVideo
         });
       }
       await client.execute({
-        sql: `UPDATE saved_sites SET video_count = ?, poster_url = COALESCE(?, poster_url), updated_at = ? WHERE id = ?`,
-        args: [videos.length, posterUrl || null, new Date().toISOString(), siteId],
+        sql: `UPDATE saved_sites SET video_count = ?, poster_url = COALESCE(?, poster_url), sections = COALESCE(?, sections), updated_at = ? WHERE id = ?`,
+        args: [videos.length, posterUrl || null, sectionsJson, new Date().toISOString(), siteId],
       });
     } catch (e) {
       console.error('[MegaVault] Turso saveSiteVideos error:', e);
@@ -1464,7 +1501,7 @@ export async function saveSiteVideos(siteId: string, videos: Omit<SavedSiteVideo
     `);
 
     const updateSiteStmt = db.prepare(`
-      UPDATE saved_sites SET video_count = ?, poster_url = COALESCE(?, poster_url), updated_at = ? WHERE id = ?
+      UPDATE saved_sites SET video_count = ?, poster_url = COALESCE(?, poster_url), sections = COALESCE(?, sections), updated_at = ? WHERE id = ?
     `);
 
     const transaction = db.transaction(() => {
@@ -1472,7 +1509,7 @@ export async function saveSiteVideos(siteId: string, videos: Omit<SavedSiteVideo
       for (const v of videos) {
         insertStmt.run(v.id, siteId, v.title, v.stream_url, v.proxy_stream_url || null, v.poster_url || null, v.format, v.mime_type, v.source || 'html5', v.created_at);
       }
-      updateSiteStmt.run(videos.length, posterUrl || null, new Date().toISOString(), siteId);
+      updateSiteStmt.run(videos.length, posterUrl || null, sectionsJson, new Date().toISOString(), siteId);
     });
 
     transaction();

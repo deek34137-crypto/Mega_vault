@@ -64,6 +64,7 @@ export async function POST(request: Request) {
       url: extraction.pageUrl,
       poster_url: extraction.posterUrl || extraction.videos[0]?.posterUrl || null,
       video_count: extraction.videos.length,
+      sections: extraction.sections || [],
       created_at: now,
       updated_at: now,
     };
@@ -85,7 +86,7 @@ export async function POST(request: Request) {
         created_at: now,
       }));
 
-      await saveSiteVideos(siteId, videoItems, site.poster_url || undefined);
+      await saveSiteVideos(siteId, videoItems, site.poster_url || undefined, extraction.sections);
     }
 
     return NextResponse.json({

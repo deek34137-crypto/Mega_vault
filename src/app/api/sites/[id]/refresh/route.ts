@@ -36,12 +36,13 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
     }));
 
     const newPoster = extraction.posterUrl || extraction.videos[0]?.posterUrl || site.poster_url || undefined;
-    await saveSiteVideos(site.id, videoItems, newPoster);
+    await saveSiteVideos(site.id, videoItems, newPoster, extraction.sections);
 
     return NextResponse.json({
       success: true,
       message: `Re-scanned "${site.nickname}". Found ${extraction.videos.length} videos.`,
       videoCount: extraction.videos.length,
+      sections: extraction.sections || [],
       videos: extraction.videos,
     });
   } catch (error: any) {

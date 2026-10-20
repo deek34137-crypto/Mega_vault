@@ -71,6 +71,9 @@ export async function GET(request: Request) {
 
     if (referer) {
       upstreamHeaders['Referer'] = referer;
+      try {
+        upstreamHeaders['Origin'] = new URL(referer).origin;
+      } catch {}
     }
 
     if (rangeHeader) {
