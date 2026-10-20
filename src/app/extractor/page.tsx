@@ -212,6 +212,18 @@ export default function ExtractorPage() {
     );
   }, [result, searchQuery]);
 
+  const openInPlayerTab = useCallback((vid: ExtractedVideo) => {
+    const stream = (useProxy && vid.proxyStreamUrl) ? vid.proxyStreamUrl : vid.streamUrl;
+    const params = new URLSearchParams({
+      url: stream,
+      title: vid.title,
+      poster: vid.posterUrl || result?.posterUrl || '',
+      quality: vid.quality || '',
+      site: result?.pageTitle || '',
+    });
+    window.open(`/player?${params.toString()}`, '_blank', 'noopener,noreferrer');
+  }, [useProxy, result]);
+
   const playerMediaItem: MediaItem | null = selectedVideo
     ? {
         id: selectedVideo.id,
@@ -540,14 +552,11 @@ export default function ExtractorPage() {
                       key={vid.id}
                       onMouseEnter={() => setHoveredId(vid.id)}
                       onMouseLeave={() => setHoveredId(null)}
-                      className="group relative rounded-2xl overflow-hidden border border-white/[0.07] bg-zinc-950 cursor-pointer"
+                      onClick={() => openInPlayerTab(vid)}
+                      className="group relative rounded-2xl overflow-hidden border border-white/[0.08] bg-zinc-950 cursor-pointer shadow-md hover:border-indigo-500/50 hover:shadow-2xl hover:shadow-indigo-500/20 transition-all duration-300"
                       style={{
-                        transform: isHovered ? 'translateY(-4px) scale(1.01)' : 'none',
-                        boxShadow: isHovered ? '0 20px 40px rgba(0,0,0,0.6), 0 0 30px rgba(99,102,241,0.12)' : 'none',
-                        transition: 'transform 0.3s cubic-bezier(0.16,1,0.3,1), box-shadow 0.3s cubic-bezier(0.16,1,0.3,1)',
-                        borderColor: isHovered ? 'rgba(99,102,241,0.3)' : undefined,
+                        transform: isHovered ? 'translateY(-3px) scale(1.015)' : 'none',
                       }}
-                      onClick={() => setSelectedVideo(vid)}
                     >
                       {/* Poster */}
                       <div className="relative aspect-[2/3] overflow-hidden bg-zinc-900">
@@ -556,11 +565,7 @@ export default function ExtractorPage() {
                             src={poster}
                             alt={vid.title}
                             loading="lazy"
-                            className="w-full h-full object-cover object-top"
-                            style={{
-                              transform: isHovered ? 'scale(1.06)' : 'scale(1)',
-                              transition: 'transform 0.5s cubic-bezier(0.16,1,0.3,1)',
-                            }}
+                            className="w-full h-full object-cover object-top group-hover:scale-106 transition-transform duration-500"
                           />
                         ) : (
                           <div className="w-full h-full bg-gradient-to-br from-indigo-950/80 via-zinc-900 to-zinc-950 flex items-center justify-center">
@@ -568,71 +573,55 @@ export default function ExtractorPage() {
                           </div>
                         )}
 
-                        {/* Gradient vignette */}
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
+                        {/* Hover Overlay: ONLY visible when user hovers! */}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/40 to-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-between p-2.5 sm:p-3 z-20">
+                          {/* Top Row: Quality badge */}
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase font-mono tracking-wider bg-indigo-500/40 border border-indigo-500/50 text-indigo-200 shadow-md backdrop-blur-md">
+                              {vid.quality || (vid.streamUrl.includes('1080') ? '1080p FHD' : vid.streamUrl.includes('720') ? '720p HD' : vid.format.split(' ')[0])}
+                            </span>
+                          </div>
 
-                        {/* Format & Quality badge */}
-                        <div className="absolute top-2.5 left-2.5 z-10 flex items-center gap-1">
-                          <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase font-mono tracking-wider border ${fmt.bg} ${fmt.border} ${fmt.text}`}>
-                            {vid.quality || (vid.streamUrl.includes('1080') ? '1080p FHD' : vid.streamUrl.includes('720') ? '720p HD' : vid.format.split(' ')[0])}
-                          </span>
-                        </div>
+                          {/* Center: Glowing Play Icon */}
+                          <div className="self-center">
+                            <div className="w-12 h-12 rounded-full bg-indigo-600/90 group-hover:bg-indigo-500 text-white flex items-center justify-center shadow-lg shadow-indigo-600/50 transform group-hover:scale-110 transition-transform">
+                              <Play className="w-5 h-5 fill-white text-white translate-x-0.5" />
+                            </div>
+                          </div>
 
-                        {/* Play button overlay */}
-                        <div
-                          className="absolute inset-0 flex items-center justify-center"
-                          style={{
-                            opacity: isHovered ? 1 : 0,
-                            transition: 'opacity 0.2s ease',
-                          }}
-                        >
-                          <div className="w-14 h-14 rounded-full bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center">
-                            <Play className="w-6 h-6 fill-white text-white translate-x-0.5" />
+                          {/* Bottom: Title & Play Option */}
+                          <div>
+                            <h3
+                              className="text-xs font-bold text-white leading-tight line-clamp-2 drop-shadow-md mb-2"
+                              title={vid.title}
+                            >
+                              {vid.title}
+                            </h3>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openInPlayerTab(vid);
+                                }}
+                                className="flex-1 py-1.5 px-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold flex items-center justify-center gap-1.5 shadow-md shadow-indigo-600/30 transition-all"
+                              >
+                                <Play className="w-3 h-3 fill-white" />
+                                <span>Play Video</span>
+                                <ExternalLink className="w-3 h-3 text-indigo-200 ml-0.5" />
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleCopy(vid.id, useProxy ? vid.proxyStreamUrl : vid.streamUrl);
+                                }}
+                                title="Copy stream link"
+                                className="p-1.5 rounded-xl bg-white/[0.1] hover:bg-white/[0.2] border border-white/[0.15] text-zinc-300 hover:text-white transition-all"
+                              >
+                                {copiedId === vid.id ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                              </button>
+                            </div>
                           </div>
                         </div>
-
-                        {/* Bottom title on hover */}
-                        <div className="absolute bottom-0 left-0 right-0 p-3 z-10">
-                          <h3
-                            className="text-xs font-bold text-white leading-snug"
-                            style={{
-                              display: '-webkit-box',
-                              WebkitLineClamp: isHovered ? 3 : 2,
-                              WebkitBoxOrient: 'vertical',
-                              overflow: 'hidden',
-                            }}
-                          >
-                            {vid.title}
-                          </h3>
-                        </div>
-                      </div>
-
-                      {/* Action bar */}
-                      <div
-                        className="px-3 py-2.5 flex items-center gap-1.5 bg-zinc-950"
-                        style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}
-                      >
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setSelectedVideo(vid); }}
-                          className="flex-1 py-1.5 rounded-xl bg-indigo-600/90 hover:bg-indigo-500 text-white text-[11px] font-bold flex items-center justify-center gap-1 transition-all"
-                        >
-                          <Play className="w-3 h-3 fill-white" />
-                          <span>Play</span>
-                        </button>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleCopy(vid.id, useProxy ? vid.proxyStreamUrl : vid.streamUrl); }}
-                          className="p-1.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.09] border border-white/[0.07] text-zinc-400 hover:text-white transition-all"
-                        >
-                          {copiedId === vid.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                        </button>
-                        <a
-                          href={`${vid.proxyStreamUrl}&download=true`}
-                          download
-                          onClick={(e) => e.stopPropagation()}
-                          className="p-1.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.09] border border-white/[0.07] text-zinc-400 hover:text-white transition-all"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                        </a>
                       </div>
                     </div>
                   );

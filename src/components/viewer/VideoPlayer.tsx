@@ -22,6 +22,7 @@ import {
   PictureInPicture,
   Upload,
   FileText,
+  Zap,
 } from 'lucide-react';
 import { formatBytes, formatDuration } from '@/lib/utils/cn';
 import { MediaItem } from '@/types';
@@ -180,12 +181,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         enableWorker: true,
         lowLatencyMode: false, // Critical: disable low-latency mode for smooth VOD playback without stalls
         backBufferLength: 60,
-        maxBufferLength: 60,
-        maxMaxBufferLength: 120,
-        maxBufferSize: 60 * 1024 * 1024,
+        maxBufferLength: 120, // 2 minutes pre-buffering
+        maxMaxBufferLength: 600, // up to 10 minutes buffer ahead
+        maxBufferSize: 128 * 1024 * 1024, // 128 MB buffer cache
         maxBufferHole: 0.5,
         highBufferWatchdogPeriod: 2,
         capLevelToPlayerSize: false,
+        progressive: true,
       });
 
       hlsInstance.loadSource(stream);
@@ -701,6 +703,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           >
             <Star className={`w-4 h-4 sm:w-5 sm:h-5 ${media.isFavorite ? 'fill-amber-400 text-amber-400' : ''}`} />
           </button>
+
+          {/* Open in FastStream (Open Source Zero-Buffering Player) */}
+          <a
+            href={`https://faststream.online/#${encodeURIComponent(media.streamUrl || '')}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Open in FastStream Player (Zero-Buffering External Player)"
+            onClick={(e) => e.stopPropagation()}
+            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/40 hover:to-orange-500/40 text-amber-300 border border-amber-500/40 text-xs font-bold transition-all shadow-sm"
+          >
+            <Zap className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+            <span>FastStream</span>
+          </a>
 
           {/* Download Button */}
           <a
