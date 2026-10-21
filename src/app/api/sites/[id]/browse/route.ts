@@ -26,7 +26,7 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
 
   try {
     const targetUrl = query
-      ? buildSiteSearchUrl(site.url, query, sectionUrl)
+      ? buildSiteSearchUrl(site.url, query, sectionUrl, page)
       : buildPagedUrl(sectionUrl, page);
 
     const extraction = await extractVideosFromUrl(targetUrl);
@@ -87,7 +87,7 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
     const query = (body.query || '').trim();
 
     const targetUrl = query
-      ? buildSiteSearchUrl(site.url, query, sectionUrl)
+      ? buildSiteSearchUrl(site.url, query, sectionUrl, page)
       : buildPagedUrl(sectionUrl, page);
 
     const extraction = await extractVideosFromUrl(targetUrl);

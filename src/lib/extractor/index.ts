@@ -270,11 +270,11 @@ export async function resolvePageStream(pageUrl: string, referer?: string): Prom
     const html = (await res.text()).slice(0, 3 * 1024 * 1024);
 
     // 1. html5player setters (XNXX, XHamster, etc.) - ALWAYS pick highest quality
-    const highMatch = html.match(/html5player\.setVideoUrlHigh\(['"]([^'"]+)['"]\)/i);
-    const hlsMatch = html.match(/html5player\.setVideoHLS\(['"]([^'"]+)['"]\)/i);
-    const lowMatch = html.match(/html5player\.setVideoUrlLow\(['"]([^'"]+)['"]\)/i);
-    const thumbMatch = html.match(/html5player\.setThumbUrl(?:169)?\(['"]([^'"]+)['"]\)/i);
-    const titleMatch = html.match(/html5player\.setVideoTitle\(['"]([^'"]+)['"]\)/i);
+    const highMatch = html.match(/(?:html5player|html5video)\.setVideoUrlHigh\(['"]([^'"]+)['"]\)/i);
+    const hlsMatch = html.match(/(?:html5player|html5video)\.setVideoHLS\(['"]([^'"]+)['"]\)/i);
+    const lowMatch = html.match(/(?:html5player|html5video)\.setVideoUrlLow\(['"]([^'"]+)['"]\)/i);
+    const thumbMatch = html.match(/(?:html5player|html5video)\.setThumbUrl(?:169)?\(['"]([^'"]+)['"]\)/i);
+    const titleMatch = html.match(/(?:html5player|html5video)\.setVideoTitle\(['"]([^'"]+)['"]\)/i);
 
     if (highMatch || hlsMatch || lowMatch) {
       // Pick highest quality available: High MP4 1080p > HLS master > Low
@@ -715,6 +715,24 @@ export function extractSiteSections(html: string, baseUrl: string): ExtractedSec
   }
   const baseHost = baseParsed.hostname.toLowerCase().replace(/^www\./, '');
 
+  // Pre-configured rich sections for XNXX tube network
+  if (baseHost.includes('xnxx')) {
+    return [
+      { id: 'home', name: 'Homepage', url: `${baseParsed.origin}/` },
+      { id: 'sec_hits', name: 'Hits', url: `${baseParsed.origin}/hits` },
+      { id: 'sec_best', name: 'Best Of', url: `${baseParsed.origin}/best` },
+      { id: 'sec_1080p', name: '1080p HD', url: `${baseParsed.origin}/search/1080p` },
+      { id: 'sec_indian', name: 'Indian', url: `${baseParsed.origin}/search/indian` },
+      { id: 'sec_asian', name: 'Asian', url: `${baseParsed.origin}/search/asian` },
+      { id: 'sec_milf', name: 'MILF', url: `${baseParsed.origin}/search/milf` },
+      { id: 'sec_japanese', name: 'Japanese', url: `${baseParsed.origin}/search/japanese` },
+      { id: 'sec_teen', name: 'Teen (18+)', url: `${baseParsed.origin}/search/18yo` },
+      { id: 'sec_pov', name: 'POV', url: `${baseParsed.origin}/search/POV` },
+      { id: 'sec_anal', name: 'Anal', url: `${baseParsed.origin}/search/anal` },
+      { id: 'sec_amateur', name: 'Amateur', url: `${baseParsed.origin}/search/amateur` },
+    ];
+  }
+
   const isValidCandidate = (href: string) => {
     if (
       !href ||
@@ -733,6 +751,24 @@ export function extractSiteSections(html: string, baseUrl: string): ExtractedSec
         return null;
       }
       const p = full.pathname.toLowerCase();
+      const cleanP = p.replace(/\/+$/, '');
+
+      // Reject bare directory roots that don't directly host video streams
+      if (
+        cleanP === '/tags' ||
+        cleanP === '/tag' ||
+        cleanP === '/categories' ||
+        cleanP === '/category' ||
+        cleanP === '/genres' ||
+        cleanP === '/genre' ||
+        cleanP === '/pornstars' ||
+        cleanP === '/pornstar' ||
+        cleanP === '/channels' ||
+        cleanP === '/channel'
+      ) {
+        return null;
+      }
+
       // Must NOT contain post-level patterns, comments, auth or user pages
       if (
         full.hash.includes('comment') ||
@@ -983,10 +1019,19 @@ export function buildPagedUrl(baseUrl: string, page: number): string {
     if (host.includes('xnxx')) {
       const xnxxPage = targetPage - 1;
       const cleanPath = path.replace(/\/+$/, '');
-      if (cleanPath.match(/\/\d+$/)) {
-        return new URL(cleanPath.replace(/\/\d+$/, `/${xnxxPage}`) + parsed.search, parsed.origin).href;
+      if (cleanPath === '' || cleanPath === '/') {
+        return targetPage > 1
+          ? new URL(`/hits/${xnxxPage}` + parsed.search, parsed.origin).href
+          : new URL('/' + parsed.search, parsed.origin).href;
       }
-      return new URL(`${cleanPath}/${xnxxPage}` + parsed.search, parsed.origin).href;
+      if (cleanPath.match(/\/\d+$/)) {
+        return targetPage > 1
+          ? new URL(cleanPath.replace(/\/\d+$/, `/${xnxxPage}`) + parsed.search, parsed.origin).href
+          : new URL(cleanPath.replace(/\/\d+$/, '') + parsed.search, parsed.origin).href;
+      }
+      return targetPage > 1
+        ? new URL(`${cleanPath}/${xnxxPage}` + parsed.search, parsed.origin).href
+        : new URL(cleanPath + parsed.search, parsed.origin).href;
     }
 
     // 5. If path contains /page/N/ -> replace N
@@ -1017,35 +1062,52 @@ export function buildPagedUrl(baseUrl: string, page: number): string {
 
 /**
  * Universal Site & Section Search URL Builder
- * Formulates live search URLs across video, tube, and adult streaming websites
+ * Formulates live search URLs across video, tube, and adult streaming websites with pagination support
  */
-export function buildSiteSearchUrl(siteUrl: string, query: string, sectionUrl?: string): string {
+export function buildSiteSearchUrl(
+  siteUrl: string,
+  query: string,
+  sectionUrl?: string,
+  page: number = 1
+): string {
   const q = query.trim();
   if (!q) return sectionUrl || siteUrl;
+  const targetPage = Math.max(1, page);
+  const xnxxPage = targetPage - 1;
 
   try {
     const base = new URL(sectionUrl || siteUrl);
     const host = base.hostname.toLowerCase();
 
     if (host.includes('rule34video')) {
-      return `${base.origin}/search/${encodeURIComponent(q)}/`;
+      return targetPage > 1
+        ? `${base.origin}/search/${encodeURIComponent(q)}/page/${targetPage}/`
+        : `${base.origin}/search/${encodeURIComponent(q)}/`;
     }
     if (host.includes('xnxx')) {
-      return `${base.origin}/search/${encodeURIComponent(q)}`;
+      return targetPage > 1
+        ? `${base.origin}/search/${encodeURIComponent(q)}/${xnxxPage}`
+        : `${base.origin}/search/${encodeURIComponent(q)}`;
     }
     if (host.includes('hanime1')) {
-      return `${base.origin}/search?query=${encodeURIComponent(q)}`;
+      return `${base.origin}/search?query=${encodeURIComponent(q)}&page=${targetPage}`;
     }
     if (host.includes('hstream') || host.includes('henvids')) {
-      return `${base.origin}/search?q=${encodeURIComponent(q)}`;
+      return targetPage > 1
+        ? `${base.origin}/search?q=${encodeURIComponent(q)}&page=${targetPage}`
+        : `${base.origin}/search?q=${encodeURIComponent(q)}`;
     }
     if (sectionUrl && sectionUrl !== siteUrl && (base.pathname.includes('/category/') || base.pathname.includes('/tag/'))) {
       const cleanPath = base.pathname.replace(/\/+$/, '');
-      return `${base.origin}${cleanPath}/?s=${encodeURIComponent(q)}`;
+      return targetPage > 1
+        ? `${base.origin}${cleanPath}/page/${targetPage}/?s=${encodeURIComponent(q)}`
+        : `${base.origin}${cleanPath}/?s=${encodeURIComponent(q)}`;
     }
 
-    // Default universal WordPress / Video tube search: ?s=query
-    return `${base.origin}/?s=${encodeURIComponent(q)}`;
+    // Default universal WordPress / Video tube search: ?s=query&page=N
+    return targetPage > 1
+      ? `${base.origin}/page/${targetPage}/?s=${encodeURIComponent(q)}`
+      : `${base.origin}/?s=${encodeURIComponent(q)}`;
   } catch {
     return siteUrl;
   }
@@ -1195,7 +1257,7 @@ export async function extractVideosFromUrl(targetUrl: string): Promise<Extractio
       quality,
       mimeType,
       format,
-      source: customReferer || source,
+      source,
     });
   };
 
@@ -1292,8 +1354,8 @@ export async function extractVideosFromUrl(targetUrl: string): Promise<Extractio
   if (isListingPage || extractedVideos.length === 0) {
     let cards = extractListingCards(html, finalUrl);
 
-    // If 0 cards and page is a portal/directory like xnxx.health, auto-follow top feed link
-    if (cards.length === 0) {
+    // If 0 cards and page is a portal/directory root like xnxx.health, auto-follow top feed link
+    if (cards.length === 0 && (parsedTarget.pathname === '/' || parsedTarget.pathname === '')) {
       const feedLinks = ['/hits', '/best', '/todays-selection', '/trending', '/videos', '/all-videos'];
       for (const feed of feedLinks) {
         if (html.includes(feed)) {
