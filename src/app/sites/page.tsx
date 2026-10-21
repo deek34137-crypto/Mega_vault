@@ -434,6 +434,23 @@ export default function SavedSitesPage() {
     videoGridRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
+  // Auto-trigger live site search when typing in a selected channel
+  useEffect(() => {
+    if (!selectedSiteId || !currentSite) return;
+    const q = searchQuery.trim();
+    if (!q || q.length < 2 || isBrowsingPage) return;
+
+    const searchKey = `${currentSite.id}_search_${q.toLowerCase()}_1`;
+    if (sectionVideosMap[searchKey] !== undefined) return;
+
+    const timer = setTimeout(() => {
+      const targetSection = activeSectionUrl || currentSite.url;
+      browseSectionPage(currentSite, targetSection, 1, q);
+    }, 750);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery, selectedSiteId, currentSite, activeSectionUrl, browseSectionPage, isBrowsingPage, sectionVideosMap]);
+
   const handleAddSite = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newNickname.trim() || !newUrl.trim() || isSubmitting) return;
@@ -1089,13 +1106,23 @@ export default function SavedSitesPage() {
                   <span>Search Online Across All Channels</span>
                 </button>
               ) : (
-                <button
-                  onClick={() => handleSelectSite(null)}
-                  className="px-5 py-2.5 rounded-2xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-all inline-flex items-center gap-1.5 shadow-lg shadow-purple-600/30"
-                >
-                  <Search className="w-3.5 h-3.5" />
-                  <span>Search across All Channels</span>
-                </button>
+                <div className="flex flex-col sm:flex-row items-center gap-2.5">
+                  <button
+                    onClick={handleLiveSearchOnSite}
+                    disabled={isBrowsingPage}
+                    className="px-5 py-2.5 rounded-2xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-all inline-flex items-center gap-1.5 shadow-lg shadow-purple-600/30 active:scale-95 disabled:opacity-50"
+                  >
+                    {isBrowsingPage ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5 fill-white" />}
+                    <span>Search "{cleanChannelName(currentSite?.nickname, currentSite?.url)}" Live</span>
+                  </button>
+                  <button
+                    onClick={() => handleSelectSite(null)}
+                    className="px-4 py-2.5 rounded-2xl bg-white/[0.06] hover:bg-white/[0.09] border border-white/[0.08] text-zinc-300 text-xs font-semibold transition-all inline-flex items-center gap-1.5"
+                  >
+                    <Search className="w-3.5 h-3.5" />
+                    <span>Search across All Channels</span>
+                  </button>
+                </div>
               )}
             </div>
           ) : null}

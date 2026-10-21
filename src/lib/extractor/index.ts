@@ -483,7 +483,9 @@ export async function resolvePageStream(pageUrl: string, referer?: string): Prom
     const scriptStream = html.match(/(https?:\/\/[^\s"'<>\\]+?\.(?:mp4|m3u8)(?:\?[^\s"'<>\\]*)?)/i);
     if (scriptStream && !scriptStream[1].includes('.js') && !scriptStream[1].includes('.css')) {
       const stream = resolveUrl(scriptStream[1], finalUrl);
-      if (stream) return { stream, source: 'script' };
+      if (stream && !stream.includes('preview.mp4') && !stream.includes('/preview_')) {
+        return { stream, source: 'script' };
+      }
     }
 
     return null;
@@ -1164,7 +1166,8 @@ export async function extractVideosFromUrl(targetUrl: string): Promise<Extractio
       streamUrl.includes('google-analytics') ||
       streamUrl.includes('doubleclick') ||
       streamUrl.includes('facebook.com') ||
-      streamUrl.includes('adservice')
+      streamUrl.includes('adservice') ||
+      streamUrl.includes('preview.mp4')
     ) {
       return;
     }
@@ -1192,19 +1195,34 @@ export async function extractVideosFromUrl(targetUrl: string): Promise<Extractio
       quality,
       mimeType,
       format,
-      source,
+      source: customReferer || source,
     });
   };
 
+  const isListingPage =
+    cleanUrl.includes('/search') ||
+    cleanUrl.includes('?s=') ||
+    cleanUrl.includes('?q=') ||
+    cleanUrl.includes('?k=') ||
+    cleanUrl.includes('?query=') ||
+    cleanUrl.includes('/category/') ||
+    cleanUrl.includes('/tag/') ||
+    cleanUrl.includes('/browse/') ||
+    cleanUrl.includes('/videos/') ||
+    cleanUrl.includes('/channels/') ||
+    cleanUrl.includes('/page/');
+
   // --- Step 1: Check if the current page itself contains a direct single video player ---
-  const singleStream = await resolvePageStream(finalUrl);
-  if (singleStream && singleStream.stream) {
-    addVideo(
-      singleStream.stream,
-      singleStream.poster || mainPoster,
-      singleStream.title || pageTitle,
-      singleStream.source
-    );
+  if (!isListingPage) {
+    const singleStream = await resolvePageStream(finalUrl);
+    if (singleStream && singleStream.stream && !singleStream.stream.includes('preview.mp4')) {
+      addVideo(
+        singleStream.stream,
+        singleStream.poster || mainPoster,
+        singleStream.title || pageTitle,
+        singleStream.source
+      );
+    }
   }
 
   // --- Step 2: HTML5 <video> & <source> tags on root page ---
@@ -1271,7 +1289,7 @@ export async function extractVideosFromUrl(targetUrl: string): Promise<Extractio
   }
 
   // --- Step 5: Listing Cards Resolution (up to 40 cards, parallel batches of 6) ---
-  if (extractedVideos.length === 0) {
+  if (isListingPage || extractedVideos.length === 0) {
     let cards = extractListingCards(html, finalUrl);
 
     // If 0 cards and page is a portal/directory like xnxx.health, auto-follow top feed link
