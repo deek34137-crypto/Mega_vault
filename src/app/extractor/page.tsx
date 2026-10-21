@@ -241,6 +241,13 @@ export default function ExtractorPage() {
 
   // Opens video in a brand-new tab with raw stream URL at highest quality possible for 0 buffering
   const openInPlayerTab = useCallback((vid: ExtractedVideo) => {
+    const isHls = (vid.streamUrl && vid.streamUrl.includes('.m3u8')) || (vid.format && vid.format.toUpperCase().includes('M3U8'));
+    if (isHls) {
+      const streamTarget = vid.proxyStreamUrl || vid.streamUrl || '';
+      const playerUrl = `/player?url=${encodeURIComponent(streamTarget)}&title=${encodeURIComponent(vid.title || 'Video Stream')}`;
+      window.open(playerUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
     const rawUrl = vid.streamUrl || vid.proxyStreamUrl || '';
     if (rawUrl) {
       const highestQuality = getHighestQualityRawUrl(rawUrl);

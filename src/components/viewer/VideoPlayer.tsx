@@ -229,7 +229,22 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       hlsInstance.loadSource(stream);
       hlsInstance.attachMedia(video);
 
-      hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+      hlsInstance.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
+        if (data && data.levels && data.levels.length > 0) {
+          // Immediately select the highest quality level available (1080p FHD) for crisp playback
+          let highestIndex = 0;
+          let maxScore = 0;
+          data.levels.forEach((lvl, idx) => {
+            const score = (lvl.height || 0) * 10000 + (lvl.bitrate || 0);
+            if (score > maxScore) {
+              maxScore = score;
+              highestIndex = idx;
+            }
+          });
+          if (hlsInstance && highestIndex >= 0) {
+            hlsInstance.currentLevel = highestIndex;
+          }
+        }
         video.play().catch(() => {});
       });
 

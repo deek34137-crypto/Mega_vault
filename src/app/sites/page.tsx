@@ -643,10 +643,16 @@ export default function SavedSitesPage() {
 
   // Opens direct stream URL in a new tab with NOTHING ELSE for 0 buffering
   const openInPlayerTab = useCallback((vid: SavedSiteVideo) => {
-    // When CORS Bypass / proxy is enabled (useProxy is true), open the proxy URL so that:
-    // 1. ISP DNS/SNI blocking is bypassed (runs through local backend)
-    // 2. Expired tokens are auto-healed transparently
-    // 3. Browser opens a native, clean black tab with 0 buffering!
+    // If stream is HLS (.m3u8), route to dedicated standalone player tab so 1080p FHD plays with Hls.js seamlessly:
+    const isHls = (vid.stream_url && vid.stream_url.includes('.m3u8')) || (vid.format && vid.format.toUpperCase().includes('M3U8'));
+    if (isHls) {
+      const streamTarget = (useProxy && vid.proxy_stream_url) ? vid.proxy_stream_url : vid.stream_url;
+      const playerUrl = `/player?url=${encodeURIComponent(streamTarget)}&title=${encodeURIComponent(vid.title)}&site=${encodeURIComponent(vid.site_nickname || '')}`;
+      window.open(playerUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    // Direct MP4 / WebM: open native raw stream tab for 0 buffering
     const target = (useProxy && vid.proxy_stream_url) ? vid.proxy_stream_url : getHighestQualityRawUrl(vid.stream_url);
     if (target) {
       window.open(target, '_blank', 'noopener,noreferrer');
@@ -655,13 +661,24 @@ export default function SavedSitesPage() {
 
   // Shares/copies the direct stream URL for zero buffering
   const handleSharePlayerLink = useCallback((vid: SavedSiteVideo) => {
-    const stream = (useProxy && vid.proxy_stream_url)
+    const isHls = (vid.stream_url && vid.stream_url.includes('.m3u8')) || (vid.format && vid.format.toUpperCase().includes('M3U8'));
+    const stream = isHls
+      ? `${window.location.origin}/player?url=${encodeURIComponent((useProxy && vid.proxy_stream_url) ? vid.proxy_stream_url : vid.stream_url)}&title=${encodeURIComponent(vid.title)}`
+      : (useProxy && vid.proxy_stream_url)
       ? `${window.location.origin}${vid.proxy_stream_url}`
       : getHighestQualityRawUrl(vid.stream_url || '');
+
     if (stream) {
       navigator.clipboard.writeText(stream);
       setCopiedId(vid.id);
-      toastSuccess('Stream URL Copied!', useProxy ? 'Stream link copied (bypasses ISP block).' : 'Direct video URL copied for 0 buffering.');
+      toastSuccess(
+        'Stream URL Copied!',
+        isHls
+          ? 'High Quality 1080p player link copied.'
+          : useProxy
+          ? 'Stream link copied (bypasses ISP block).'
+          : 'Direct video URL copied for 0 buffering.'
+      );
       setTimeout(() => setCopiedId(null), 2500);
     }
   }, [useProxy, toastSuccess]);

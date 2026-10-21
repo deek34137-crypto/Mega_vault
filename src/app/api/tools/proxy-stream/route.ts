@@ -124,9 +124,45 @@ export async function GET(request: Request) {
     const responseHeaders = new Headers();
     responseHeaders.set('Accept-Ranges', 'bytes');
     responseHeaders.set('Cache-Control', 'public, max-age=3600');
+    responseHeaders.set('Access-Control-Allow-Origin', '*');
 
-    const contentType = upstreamResponse.headers.get('content-type') || 'video/mp4';
+    let contentType = upstreamResponse.headers.get('content-type');
+    if (!contentType || contentType === 'text/plain') {
+      if (targetUrl.includes('.m3u8')) contentType = 'application/vnd.apple.mpegurl';
+      else if (targetUrl.includes('.ts')) contentType = 'video/mp2t';
+      else contentType = 'video/mp4';
+    }
     responseHeaders.set('Content-Type', contentType);
+
+    // Handle HLS manifest rewriting so relative child playlists (1080p, 720p) and segments route properly through proxy
+    if (targetUrl.includes('.m3u8') || contentType.includes('mpegurl')) {
+      const manifestText = await upstreamResponse.text();
+      const baseUrl = new URL(activeStreamUrl);
+      const rewritten = manifestText
+        .split('\n')
+        .map((line) => {
+          const trimmed = line.trim();
+          if (trimmed && !trimmed.startsWith('#')) {
+            try {
+              const absolute = new URL(trimmed, baseUrl).href;
+              return `/api/tools/proxy-stream?url=${encodeURIComponent(absolute)}&referer=${encodeURIComponent(referer || '')}`;
+            } catch {
+              return line;
+            }
+          }
+          return line;
+        })
+        .join('\n');
+
+      return new Response(rewritten, {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/vnd.apple.mpegurl',
+          'Cache-Control': 'public, max-age=60',
+          'Access-Control-Allow-Origin': '*',
+        },
+      });
+    }
 
     const contentLength = upstreamResponse.headers.get('content-length');
     if (contentLength) {

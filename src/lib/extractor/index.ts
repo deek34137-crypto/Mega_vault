@@ -194,12 +194,13 @@ export function scoreStreamQuality(url: string, label?: string): number {
   const combined = `${url} ${label || ''}`.toLowerCase();
   if (combined.includes('2160') || combined.includes('4k')) return 2160;
   if (combined.includes('1440') || combined.includes('2k')) return 1440;
-  if (combined.includes('1080') || combined.includes('fhd') || combined.includes('high') || combined.includes('setvideourlhigh')) return 1080;
-  if (combined.includes('720') || combined.includes('hd') || combined.includes('720p')) return 720;
+  if (combined.includes('1080') || combined.includes('fhd')) return 1080;
+  if (url.includes('.m3u8')) return 1080; // Multi-bitrate HLS master delivers up to 1080p Full HD
+  if (combined.includes('720') || (combined.includes('hd') && !combined.includes('sd')) || combined.includes('720p')) return 720;
   if (combined.includes('480') || combined.includes('sd') || combined.includes('480p')) return 480;
   if (combined.includes('360') || combined.includes('360p')) return 360;
   if (combined.includes('240') || combined.includes('low') || combined.includes('setvideourllow')) return 240;
-  if (url.includes('.m3u8')) return 1000; // Multi-bitrate HLS master
+  if (combined.includes('high') || combined.includes('setvideourlhigh')) return 720;
   return 500;
 }
 
@@ -277,8 +278,20 @@ export async function resolvePageStream(pageUrl: string, referer?: string): Prom
     const titleMatch = html.match(/(?:html5player|html5video)\.setVideoTitle\(['"]([^'"]+)['"]\)/i);
 
     if (highMatch || hlsMatch || lowMatch) {
-      // Pick highest quality available: High MP4 1080p > HLS master > Low
-      const rawStream = highMatch?.[1] || hlsMatch?.[1] || lowMatch?.[1];
+      // Prioritize 1080p/720p: If highMatch is explicitly HD/FHD use it; otherwise HLS provides the 1080p Full HD master stream
+      const highUrl = highMatch?.[1];
+      const hlsUrl = hlsMatch?.[1];
+      const lowUrl = lowMatch?.[1];
+
+      let rawStream: string | undefined;
+      if (highUrl && (highUrl.includes('1080') || highUrl.includes('720') || (highUrl.includes('hd') && !highUrl.includes('_sd')) || !hlsUrl)) {
+        rawStream = highUrl;
+      } else if (hlsUrl) {
+        rawStream = hlsUrl;
+      } else {
+        rawStream = highUrl || lowUrl;
+      }
+
       const stream = resolveUrl(rawStream!, finalUrl);
       if (stream) {
         const poster = thumbMatch ? resolveUrl(thumbMatch[1], finalUrl) || undefined : undefined;
