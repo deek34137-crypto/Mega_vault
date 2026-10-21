@@ -214,6 +214,10 @@ export function pickBestQualityStream(candidates: string[]): string | undefined 
  */
 export function getHighestQualityRawUrl(url: string): string {
   if (!url) return '';
+  // NEVER tamper with signed token URLs (?secure=, ?token=, ?sig=, etc.) because the HMAC signature covers the exact path!
+  if (url.includes('?secure=') || url.includes('&secure=') || url.includes('?token=') || url.includes('?sig=') || url.includes('?h=')) {
+    return url;
+  }
   let upgraded = url;
   if (upgraded.includes('_360p.mp4')) upgraded = upgraded.replace('_360p.mp4', '_1080p.mp4');
   else if (upgraded.includes('_480p.mp4')) upgraded = upgraded.replace('_480p.mp4', '_1080p.mp4');

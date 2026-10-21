@@ -121,30 +121,79 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return;
 
-      switch (e.code) {
-        case 'ArrowLeft':
-        case 'BracketLeft':
-          onPrev();
-          break;
-        case 'ArrowRight':
-        case 'BracketRight':
-          onNext();
-          break;
-        case 'Space':
-          e.preventDefault();
-          toggleSlideshow();
-          break;
-        case 'KeyF':
-          e.preventDefault();
-          toggleFullscreen();
-          break;
-        case 'Escape':
-          if (document.fullscreenElement) {
-            document.exitFullscreen().catch(() => {});
-          }
-          setIsSlideshow(false);
-          onClose();
-          break;
+      const code = e.code || '';
+      const key = e.key || '';
+      const keyCode = e.keyCode || e.which || 0;
+
+      // 1. Samsung Tizen Remote Return Key (10009) & Back / Escape
+      if (
+        keyCode === 10009 ||
+        key === 'Return' ||
+        key === 'XF86Back' ||
+        key === 'BrowserBack' ||
+        key === 'GoBack' ||
+        code === 'Escape' ||
+        code === 'Backspace' ||
+        key === 'Escape' ||
+        key === 'Backspace'
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (document.fullscreenElement) {
+          document.exitFullscreen().catch(() => {});
+        }
+        setIsSlideshow(false);
+        onClose();
+        return;
+      }
+
+      // 2. Previous Photo (Left Arrow / BracketLeft / Remote Rewind 412)
+      if (
+        keyCode === 37 ||
+        keyCode === 412 ||
+        key === 'ArrowLeft' ||
+        code === 'ArrowLeft' ||
+        code === 'BracketLeft'
+      ) {
+        e.preventDefault();
+        onPrev();
+        return;
+      }
+
+      // 3. Next Photo (Right Arrow / BracketRight / Remote FastForward 417)
+      if (
+        keyCode === 39 ||
+        keyCode === 417 ||
+        key === 'ArrowRight' ||
+        code === 'ArrowRight' ||
+        code === 'BracketRight'
+      ) {
+        e.preventDefault();
+        onNext();
+        return;
+      }
+
+      // 4. Play / Pause Slideshow (Space / Remote Play 415 / Pause 19 / PlayPause 10252 / OK 13)
+      if (
+        keyCode === 32 ||
+        keyCode === 415 ||
+        keyCode === 19 ||
+        keyCode === 10252 ||
+        key === 'MediaPlayPause' ||
+        key === 'MediaPlay' ||
+        key === 'MediaPause' ||
+        code === 'Space'
+      ) {
+        e.preventDefault();
+        toggleSlideshow();
+        return;
+      }
+
+      // 5. Fullscreen (KeyF)
+      if (code === 'KeyF' || key === 'f' || key === 'F') {
+        e.preventDefault();
+        toggleFullscreen();
+        return;
       }
     };
 

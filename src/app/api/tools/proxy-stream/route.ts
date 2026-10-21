@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { isAuthenticated } from '@/lib/auth';
+import { resolvePageStream } from '@/lib/extractor';
+import { updateVideoLiveStreamUrl } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -80,10 +82,36 @@ export async function GET(request: Request) {
       upstreamHeaders['Range'] = rangeHeader;
     }
 
-    const upstreamResponse = await fetch(targetUrl, {
+    let activeStreamUrl = targetUrl;
+    let upstreamResponse = await fetch(activeStreamUrl, {
       headers: upstreamHeaders,
       redirect: 'follow',
     });
+
+    // Auto-heal expired CDN tokens: If upstream returns 410 (Gone) or 403 (Forbidden) and referer is a video page URL:
+    if ((upstreamResponse.status === 410 || upstreamResponse.status === 403) && referer && referer.startsWith('http')) {
+      try {
+        console.log(`[ProxyStream] Upstream token expired (${upstreamResponse.status}), auto-healing via referer: ${referer}`);
+        const resolved = await resolvePageStream(referer);
+        if (resolved && resolved.stream && resolved.stream !== activeStreamUrl) {
+          activeStreamUrl = resolved.stream;
+          const retryHeaders = { ...upstreamHeaders };
+          if (rangeHeader) retryHeaders['Range'] = rangeHeader;
+          upstreamResponse = await fetch(activeStreamUrl, {
+            headers: retryHeaders,
+            redirect: 'follow',
+          });
+
+          if (upstreamResponse.ok || upstreamResponse.status === 206) {
+            console.log(`[ProxyStream] Successfully auto-healed stream to fresh token!`);
+            const newProxyUrl = `/api/tools/proxy-stream?url=${encodeURIComponent(activeStreamUrl)}&referer=${encodeURIComponent(referer)}`;
+            updateVideoLiveStreamUrl(targetUrl, activeStreamUrl, newProxyUrl).catch(() => {});
+          }
+        }
+      } catch (healErr) {
+        console.error('[ProxyStream] Auto-heal failed:', healErr);
+      }
+    }
 
     if (!upstreamResponse.ok && upstreamResponse.status !== 206) {
       return NextResponse.json(

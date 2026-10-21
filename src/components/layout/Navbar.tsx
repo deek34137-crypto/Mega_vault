@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { HardDrive, Home, Star, Settings, LogOut, Search, Menu, X, Radio, Globe } from 'lucide-react';
+import { HardDrive, Home, Star, Settings, LogOut, Search, Menu, X, Radio, Globe, Tv } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import { PrimaryLogoSvg } from '@/components/brand/LogoVariants';
 
@@ -12,6 +12,39 @@ export const Navbar: React.FC = () => {
   const router = useRouter();
   const [favCount, setFavCount] = useState<number>(0);
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
+  const [isTvUi, setIsTvUi] = useState<boolean>(false);
+
+  useEffect(() => {
+    try {
+      const savedTv = localStorage.getItem('megavault_tv_mode');
+      const isTvDevice =
+        typeof window !== 'undefined' &&
+        /SmartTV|Tizen|SAMSUNG|SamsungBrowser|Web0S|AppleTV|GoogleTV|Android.*TV|HbbTV/i.test(
+          navigator.userAgent
+        );
+
+      if (savedTv === 'true' || (savedTv === null && isTvDevice)) {
+        setIsTvUi(true);
+        document.documentElement.classList.add('tv-ui');
+        document.body.classList.add('tv-ui');
+      }
+    } catch {}
+  }, []);
+
+  const toggleTvUi = () => {
+    const next = !isTvUi;
+    setIsTvUi(next);
+    try {
+      localStorage.setItem('megavault_tv_mode', next ? 'true' : 'false');
+      if (next) {
+        document.documentElement.classList.add('tv-ui');
+        document.body.classList.add('tv-ui');
+      } else {
+        document.documentElement.classList.remove('tv-ui');
+        document.body.classList.remove('tv-ui');
+      }
+    } catch {}
+  };
 
   useEffect(() => {
     if (pathname === '/login') return;
@@ -94,6 +127,21 @@ export const Navbar: React.FC = () => {
               </span>
               <span>MEGA Vault Ready</span>
             </div>
+
+            {/* Samsung TV / 10-foot UI Mode Toggle */}
+            <button
+              onClick={toggleTvUi}
+              title={isTvUi ? "Exit TV 10-Foot UI" : "Enable Samsung TV 10-Foot Mode (Large Fonts & Focus Borders)"}
+              className={cn(
+                "px-2.5 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all duration-200",
+                isTvUi
+                  ? "bg-indigo-600/30 text-indigo-300 border-indigo-500/50 shadow-md shadow-indigo-500/20 ring-1 ring-indigo-400/40"
+                  : "bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 border-zinc-800"
+              )}
+            >
+              <Tv className="w-3.5 h-3.5 text-indigo-400" />
+              <span className="hidden sm:inline">{isTvUi ? "TV Mode" : "TV Mode"}</span>
+            </button>
 
             <button
               onClick={handleLogout}

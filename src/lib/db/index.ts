@@ -1674,5 +1674,51 @@ export async function getAllSavedSiteVideos(searchQuery?: string, siteId?: strin
   return videos;
 }
 
+export async function updateVideoLiveStreamUrl(
+  oldStreamUrl: string,
+  newStreamUrl: string,
+  newProxyStreamUrl?: string
+): Promise<void> {
+  const encOld = encryptText(oldStreamUrl);
+  const encNew = encryptText(newStreamUrl);
+  const encProxy = newProxyStreamUrl ? encryptText(newProxyStreamUrl) : null;
+
+  const client = getTursoClient();
+  if (client) {
+    try {
+      if (encProxy) {
+        await client.execute({
+          sql: 'UPDATE saved_site_videos SET stream_url = ?, proxy_stream_url = ? WHERE stream_url = ? OR stream_url = ?',
+          args: [encNew, encProxy, encOld, oldStreamUrl],
+        });
+      } else {
+        await client.execute({
+          sql: 'UPDATE saved_site_videos SET stream_url = ? WHERE stream_url = ? OR stream_url = ?',
+          args: [encNew, encOld, oldStreamUrl],
+        });
+      }
+      return;
+    } catch (e) {
+      console.error('[MegaVault] Turso updateVideoLiveStreamUrl error:', e);
+    }
+  }
+
+  try {
+    const db = getLocalDb();
+    if (encProxy) {
+      db.prepare(
+        'UPDATE saved_site_videos SET stream_url = ?, proxy_stream_url = ? WHERE stream_url = ? OR stream_url = ?'
+      ).run(encNew, encProxy, encOld, oldStreamUrl);
+    } else {
+      db.prepare(
+        'UPDATE saved_site_videos SET stream_url = ? WHERE stream_url = ? OR stream_url = ?'
+      ).run(encNew, encOld, oldStreamUrl);
+    }
+  } catch (e) {
+    console.error('[MegaVault] SQLite updateVideoLiveStreamUrl error:', e);
+  }
+}
+
+
 
 

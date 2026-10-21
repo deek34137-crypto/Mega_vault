@@ -1,5 +1,5 @@
 import { SignJWT, jwtVerify } from 'jose';
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import crypto from 'crypto';
 
 const COOKIE_NAME = 'megavault_session';
@@ -42,9 +42,17 @@ export async function createAuthSession(): Promise<string> {
     .sign(SECRET_KEY);
 
   const cookieStore = await cookies();
+  let isHttps = false;
+  try {
+    const headersList = await headers();
+    const proto = headersList.get('x-forwarded-proto');
+    // If behind reverse proxy with SSL or accessed via HTTPS
+    isHttps = proto === 'https';
+  } catch {}
+
   cookieStore.set(COOKIE_NAME, token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: isHttps,
     sameSite: 'lax',
     path: '/',
     maxAge: 24 * 60 * 60, // 24 hours

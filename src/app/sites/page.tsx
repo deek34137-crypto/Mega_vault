@@ -624,26 +624,30 @@ export default function SavedSitesPage() {
     });
   }, [selectedSiteId, currentSite, activeVideoList, videos, searchQuery, currentPage, sectionVideosMap, unifiedSearchResults]);
 
-  // Opens RAW direct stream URL in a new tab with NOTHING ELSE for 0 buffering
+  // Opens direct stream URL in a new tab with NOTHING ELSE for 0 buffering
   const openInPlayerTab = useCallback((vid: SavedSiteVideo) => {
-    const raw = vid.stream_url || vid.proxy_stream_url || '';
-    if (raw) {
-      const rawUrl = getHighestQualityRawUrl(raw);
-      window.open(rawUrl, '_blank', 'noopener,noreferrer');
+    // When CORS Bypass / proxy is enabled (useProxy is true), open the proxy URL so that:
+    // 1. ISP DNS/SNI blocking is bypassed (runs through local backend)
+    // 2. Expired tokens are auto-healed transparently
+    // 3. Browser opens a native, clean black tab with 0 buffering!
+    const target = (useProxy && vid.proxy_stream_url) ? vid.proxy_stream_url : getHighestQualityRawUrl(vid.stream_url);
+    if (target) {
+      window.open(target, '_blank', 'noopener,noreferrer');
     }
-  }, []);
+  }, [useProxy]);
 
-  // Shares/copies the direct RAW stream URL for zero buffering
+  // Shares/copies the direct stream URL for zero buffering
   const handleSharePlayerLink = useCallback((vid: SavedSiteVideo) => {
-    const raw = vid.stream_url || vid.proxy_stream_url || '';
-    if (raw) {
-      const rawUrl = getHighestQualityRawUrl(raw);
-      navigator.clipboard.writeText(rawUrl);
+    const stream = (useProxy && vid.proxy_stream_url)
+      ? `${window.location.origin}${vid.proxy_stream_url}`
+      : getHighestQualityRawUrl(vid.stream_url || '');
+    if (stream) {
+      navigator.clipboard.writeText(stream);
       setCopiedId(vid.id);
-      toastSuccess('Raw Stream Copied!', 'Direct video URL copied for 0 buffering.');
+      toastSuccess('Stream URL Copied!', useProxy ? 'Stream link copied (bypasses ISP block).' : 'Direct video URL copied for 0 buffering.');
       setTimeout(() => setCopiedId(null), 2500);
     }
-  }, [toastSuccess]);
+  }, [useProxy, toastSuccess]);
 
   const handleCopyDirectStream = useCallback((vid: SavedSiteVideo) => {
     const stream = (useProxy && vid.proxy_stream_url) ? vid.proxy_stream_url : vid.stream_url;

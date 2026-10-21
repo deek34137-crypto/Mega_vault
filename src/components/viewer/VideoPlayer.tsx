@@ -75,8 +75,39 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [isCaptionModalOpen, setIsCaptionModalOpen] = useState(false);
   const [captionInputUrl, setCaptionInputUrl] = useState('');
 
-  // TV / 10-foot UI Mode
+  // TV / 10-foot UI Mode (Auto-detects Samsung TV, Tizen, and Smart TVs)
   const [isTvMode, setIsTvMode] = useState(false);
+
+  useEffect(() => {
+    try {
+      const savedTv = localStorage.getItem('megavault_tv_mode');
+      const isTvDevice =
+        typeof window !== 'undefined' &&
+        /SmartTV|Tizen|SAMSUNG|SamsungBrowser|Web0S|AppleTV|GoogleTV|Android.*TV|HbbTV/i.test(
+          navigator.userAgent
+        );
+      if (savedTv === 'true' || (savedTv === null && isTvDevice)) {
+        setIsTvMode(true);
+      }
+    } catch {}
+  }, []);
+
+  const handleToggleTvMode = useCallback(() => {
+    setIsTvMode((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('megavault_tv_mode', next ? 'true' : 'false');
+        if (next) {
+          document.documentElement.classList.add('tv-ui');
+          document.body.classList.add('tv-ui');
+        } else {
+          document.documentElement.classList.remove('tv-ui');
+          document.body.classList.remove('tv-ui');
+        }
+      } catch {}
+      return next;
+    });
+  }, []);
 
   // Smooth debounced buffering check (eliminates 2-3x/sec strobe buffering spinner)
   const bufferingTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -177,13 +208,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     let hlsInstance: Hls | null = null;
 
     if (isHls && Hls.isSupported()) {
+      const isTv =
+        isTvMode ||
+        (typeof window !== 'undefined' &&
+          /SmartTV|Tizen|SAMSUNG|SamsungBrowser|Web0S/i.test(navigator.userAgent));
+
       hlsInstance = new Hls({
         enableWorker: true,
         lowLatencyMode: false, // Critical: disable low-latency mode for smooth VOD playback without stalls
-        backBufferLength: 60,
-        maxBufferLength: 120, // 2 minutes pre-buffering
-        maxMaxBufferLength: 600, // up to 10 minutes buffer ahead
-        maxBufferSize: 128 * 1024 * 1024, // 128 MB buffer cache
+        backBufferLength: isTv ? 20 : 60,
+        maxBufferLength: isTv ? 40 : 120, // Lightweight for TV RAM
+        maxMaxBufferLength: isTv ? 80 : 600,
+        maxBufferSize: isTv ? 32 * 1024 * 1024 : 128 * 1024 * 1024, // 32MB cache avoids Tizen browser memory crashes
         maxBufferHole: 0.5,
         highBufferWatchdogPeriod: 2,
         capLevelToPlayerSize: false,
@@ -262,12 +298,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [media.albumId, media.fileHandle]);
 
-  // Auto hide control overlay after 3 seconds of inactivity
-  const handleMouseMove = () => {
+  // Auto hide control overlay after inactivity (5s for TV mode, 3s for desktop)
+  const handleMouseMove = useCallback(() => {
     setShowOverlay(true);
     if (overlayTimeout.current) clearTimeout(overlayTimeout.current);
-    overlayTimeout.current = setTimeout(() => setShowOverlay(false), 3000);
-  };
+    const timeout = isTvMode ? 5000 : 3000;
+    overlayTimeout.current = setTimeout(() => setShowOverlay(false), timeout);
+  }, [isTvMode]);
 
   // Touch Swipe Gesture Handlers for Mobile
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -343,90 +380,160 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
   }, []);
 
-  // Keyboard & TV Remote Shortcuts Handler
+  // Keyboard & Samsung TV Remote Shortcuts Handler
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return;
 
-      const key = e.code || e.key;
+      const code = e.code || '';
+      const key = e.key || '';
+      const keyCode = e.keyCode || e.which || 0;
 
-      switch (key) {
-        case 'Space':
-        case 'KeyK':
-        case 'MediaPlayPause':
-        case 'MediaPlay':
-        case 'MediaPause':
+      // Wake up overlay on any remote/keyboard interaction
+      handleMouseMove();
+
+      // 1. Samsung Tizen Remote RETURN Key (keyCode 10009) & Back / Escape
+      if (
+        keyCode === 10009 ||
+        key === 'Return' ||
+        key === 'XF86Back' ||
+        key === 'BrowserBack' ||
+        key === 'GoBack' ||
+        code === 'Escape' ||
+        code === 'Backspace' ||
+        key === 'Escape' ||
+        key === 'Backspace'
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (isCaptionModalOpen) {
+          setIsCaptionModalOpen(false);
+        } else {
+          onClose();
+        }
+        return;
+      }
+
+      // 2. Play / Pause (Samsung Remote Play 415, Pause 19, PlayPause 10252, Space 32)
+      if (
+        keyCode === 415 ||
+        keyCode === 19 ||
+        keyCode === 10252 ||
+        keyCode === 32 ||
+        key === 'MediaPlayPause' ||
+        key === 'MediaPlay' ||
+        key === 'MediaPause' ||
+        code === 'Space' ||
+        code === 'KeyK'
+      ) {
+        e.preventDefault();
+        togglePlay();
+        return;
+      }
+
+      // 3. Fast Forward & Rewind (Samsung FF 417, Rewind 412)
+      if (keyCode === 417 || key === 'MediaFastForward' || code === 'KeyL') {
+        e.preventDefault();
+        seek(15);
+        return;
+      }
+      if (keyCode === 412 || key === 'MediaRewind' || code === 'KeyJ') {
+        e.preventDefault();
+        seek(-15);
+        return;
+      }
+
+      // 4. Directional D-Pad Seek (Arrow Right / Left, keyCodes 39 / 37)
+      if (keyCode === 39 || key === 'ArrowRight' || code === 'ArrowRight') {
+        e.preventDefault();
+        seek(10);
+        return;
+      }
+      if (keyCode === 37 || key === 'ArrowLeft' || code === 'ArrowLeft') {
+        e.preventDefault();
+        seek(-10);
+        return;
+      }
+
+      // 5. Volume Adjustments (Arrow Up / Down, keyCodes 38 / 40)
+      if (keyCode === 38 || key === 'ArrowUp' || code === 'ArrowUp') {
+        e.preventDefault();
+        adjustVolume(0.1);
+        return;
+      }
+      if (keyCode === 40 || key === 'ArrowDown' || code === 'ArrowDown') {
+        e.preventDefault();
+        adjustVolume(-0.1);
+        return;
+      }
+
+      // 6. Select / OK Key (keyCode 13)
+      if (keyCode === 13 || key === 'Enter' || key === 'Select' || code === 'Enter' || code === 'NumpadEnter') {
+        if (document.activeElement === document.body || document.activeElement === containerRef.current) {
           e.preventDefault();
           togglePlay();
-          break;
-        case 'ArrowRight':
-          e.preventDefault();
-          seek(10);
-          break;
-        case 'ArrowLeft':
-          e.preventDefault();
-          seek(-10);
-          break;
-        case 'MediaFastForward':
-        case 'KeyL':
-          e.preventDefault();
-          seek(15);
-          break;
-        case 'MediaRewind':
-        case 'KeyJ':
-          e.preventDefault();
-          seek(-15);
-          break;
-        case 'ArrowUp':
-          e.preventDefault();
-          adjustVolume(0.1);
-          break;
-        case 'ArrowDown':
-          e.preventDefault();
-          adjustVolume(-0.1);
-          break;
-        case 'KeyM':
-          e.preventDefault();
-          toggleMute();
-          break;
-        case 'KeyF':
-          e.preventDefault();
-          toggleFullscreen();
-          break;
-        case 'KeyC':
-          e.preventDefault();
-          toggleCaptions();
-          break;
-        case 'KeyP':
-          e.preventDefault();
-          togglePiP();
-          break;
-        case 'KeyT':
-          e.preventDefault();
-          setIsTvMode((prev) => !prev);
-          break;
-        case 'Enter':
-        case 'NumpadEnter':
-        case 'Select':
-          if (document.activeElement === document.body || document.activeElement === containerRef.current) {
-            e.preventDefault();
-            togglePlay();
-          }
-          break;
-        case 'Escape':
-        case 'Backspace':
-        case 'BrowserBack':
-        case 'GoBack':
-          if (!isCaptionModalOpen) {
-            onClose();
-          }
-          break;
+        }
+        return;
+      }
+
+      // 7. Stop Key (Samsung Stop 413)
+      if (keyCode === 413 || key === 'MediaStop') {
+        e.preventDefault();
+        if (videoRef.current) videoRef.current.pause();
+        return;
+      }
+
+      // 8. Fullscreen (KeyF)
+      if (code === 'KeyF' || key === 'f' || key === 'F') {
+        e.preventDefault();
+        toggleFullscreen();
+        return;
+      }
+
+      // 9. Mute (KeyM)
+      if (code === 'KeyM' || key === 'm' || key === 'M') {
+        e.preventDefault();
+        toggleMute();
+        return;
+      }
+
+      // 10. Subtitles (KeyC or Samsung Remote Red Button 403)
+      if (code === 'KeyC' || key === 'c' || key === 'C' || keyCode === 403) {
+        e.preventDefault();
+        toggleCaptions();
+        return;
+      }
+
+      // 11. TV Mode (KeyT or Samsung Remote Yellow Button 405)
+      if (code === 'KeyT' || key === 't' || key === 'T' || keyCode === 405) {
+        e.preventDefault();
+        handleToggleTvMode();
+        return;
+      }
+
+      // 12. PiP (KeyP)
+      if (code === 'KeyP' || key === 'p' || key === 'P') {
+        e.preventDefault();
+        togglePiP();
+        return;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [togglePlay, seek, adjustVolume, toggleMute, toggleFullscreen, toggleCaptions, togglePiP, isCaptionModalOpen, onClose]);
+  }, [
+    handleMouseMove,
+    togglePlay,
+    seek,
+    adjustVolume,
+    toggleMute,
+    toggleFullscreen,
+    toggleCaptions,
+    handleToggleTvMode,
+    togglePiP,
+    isCaptionModalOpen,
+    onClose,
+  ]);
 
   return (
     <div
@@ -566,56 +673,89 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {/* Sideways Navigation Buttons (Previous / Next Media) */}
       {onPrev && (
         <button
+          tabIndex={0}
           onClick={(e) => {
             e.stopPropagation();
             onPrev();
           }}
           title="Previous Media"
-          className={`absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 p-2.5 sm:p-3.5 rounded-full bg-zinc-900/85 hover:bg-blue-600 text-zinc-200 hover:text-white border border-zinc-700/80 hover:border-blue-500 backdrop-blur-md z-40 transition-all duration-200 shadow-2xl ${
+          className={`absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 ${
+            isTvMode ? 'p-3.5 sm:p-4' : 'p-2.5 sm:p-3.5'
+          } rounded-full bg-zinc-900/85 hover:bg-blue-600 text-zinc-200 hover:text-white border border-zinc-700/80 hover:border-blue-500 backdrop-blur-md z-40 transition-all duration-200 shadow-2xl ${
             showOverlay ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'
           }`}
         >
-          <ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" />
+          <ChevronLeft className={`${isTvMode ? 'w-6 h-6 sm:w-7 sm:h-7' : 'w-5 h-5 sm:w-6 sm:h-6'}`} />
         </button>
       )}
 
       {onNext && (
         <button
+          tabIndex={0}
           onClick={(e) => {
             e.stopPropagation();
             onNext();
           }}
           title="Next Media"
-          className={`absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 p-2.5 sm:p-3.5 rounded-full bg-zinc-900/85 hover:bg-blue-600 text-zinc-200 hover:text-white border border-zinc-700/80 hover:border-blue-500 backdrop-blur-md z-40 transition-all duration-200 shadow-2xl ${
+          className={`absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 ${
+            isTvMode ? 'p-3.5 sm:p-4' : 'p-2.5 sm:p-3.5'
+          } rounded-full bg-zinc-900/85 hover:bg-blue-600 text-zinc-200 hover:text-white border border-zinc-700/80 hover:border-blue-500 backdrop-blur-md z-40 transition-all duration-200 shadow-2xl ${
             showOverlay ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'
           }`}
         >
-          <ChevronRight className="w-5 h-5 sm:w-6 sm:h-6" />
+          <ChevronRight className={`${isTvMode ? 'w-6 h-6 sm:w-7 sm:h-7' : 'w-5 h-5 sm:w-6 sm:h-6'}`} />
         </button>
       )}
 
       {/* Top Header Overlay */}
       <div
-        className={`absolute top-0 left-0 right-0 p-3 sm:p-4 bg-gradient-to-b from-black/80 via-black/40 to-transparent flex items-center justify-between transition-opacity duration-300 z-20 gap-2 ${
+        className={`absolute top-0 left-0 right-0 ${
+          isTvMode
+            ? 'p-4 sm:p-6 bg-gradient-to-b from-black/95 via-black/60 to-transparent'
+            : 'p-3 sm:p-4 bg-gradient-to-b from-black/80 via-black/40 to-transparent'
+        } flex items-center justify-between transition-opacity duration-300 z-20 gap-2 ${
           showOverlay ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
       >
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <h3 className="text-xs sm:text-sm font-bold text-white font-mono truncate max-w-[35vw] sm:max-w-xs">{media.fileName}</h3>
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-black bg-purple-500/20 text-purple-300 border border-purple-500/40">
-              {media.quality || (media.streamUrl?.includes('1080') ? '1080p FHD' : media.streamUrl?.includes('720') ? '720p HD' : 'HD')}
+          <div className="flex items-center gap-2 sm:gap-3">
+            <h3
+              className={`${
+                isTvMode ? 'text-sm sm:text-xl' : 'text-xs sm:text-sm'
+              } font-bold text-white font-mono truncate max-w-[40vw] sm:max-w-md`}
+            >
+              {media.fileName}
+            </h3>
+            <span
+              className={`${
+                isTvMode ? 'px-2.5 py-1 text-xs' : 'px-2 py-0.5 text-[10px]'
+              } rounded-full font-mono font-black bg-purple-500/20 text-purple-300 border border-purple-500/40`}
+            >
+              {media.quality ||
+                (media.streamUrl?.includes('1080')
+                  ? '1080p FHD'
+                  : media.streamUrl?.includes('720')
+                  ? '720p HD'
+                  : 'HD')}
             </span>
+            {isTvMode && (
+              <span className="hidden sm:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
+                <Tv className="w-3.5 h-3.5 text-indigo-400" />
+                <span>TV Mode</span>
+              </span>
+            )}
           </div>
-          <p className="text-[10px] sm:text-xs text-zinc-400">
-            {formatBytes(media.size)} {currentIndex !== undefined && totalCount ? `• ${currentIndex + 1} of ${totalCount}` : ''}
+          <p className={`${isTvMode ? 'text-xs sm:text-sm text-zinc-300' : 'text-[10px] sm:text-xs text-zinc-400'} mt-0.5`}>
+            {formatBytes(media.size)}{' '}
+            {currentIndex !== undefined && totalCount ? `• ${currentIndex + 1} of ${totalCount}` : ''}
           </p>
         </div>
 
-        <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2.5 flex-shrink-0">
           {/* Subtitles / Captions Button */}
           <div className="relative flex items-center">
             <button
+              tabIndex={0}
               onClick={toggleCaptions}
               onContextMenu={(e) => {
                 e.preventDefault();
@@ -623,21 +763,24 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               }}
               title={
                 showCaptions
-                  ? "Subtitles: ON (Click to toggle, right-click for settings) (C)"
+                  ? 'Subtitles: ON (Click to toggle, right-click for settings) (C)'
                   : subtitleUrl
-                  ? "Subtitles: OFF (Click to turn on, right-click for settings) (C)"
-                  : "Subtitles / Closed Captions (C)"
+                  ? 'Subtitles: OFF (Click to turn on, right-click for settings) (C)'
+                  : 'Subtitles / Closed Captions (C)'
               }
-              className={`p-2 sm:p-2.5 rounded-full border transition-all focus-visible:ring-4 focus-visible:ring-purple-400 ${
+              className={`${
+                isTvMode ? 'p-3 sm:p-3.5' : 'p-2 sm:p-2.5'
+              } rounded-full border transition-all focus-visible:ring-4 focus-visible:ring-purple-400 ${
                 showCaptions && subtitleUrl
                   ? 'bg-purple-600 text-white border-purple-400 shadow-md shadow-purple-600/30'
                   : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-700/70'
               }`}
             >
-              <Subtitles className="w-4 h-4 sm:w-5 sm:h-5" />
+              <Subtitles className={`${isTvMode ? 'w-5 h-5 sm:w-6 sm:h-6' : 'w-4 h-4 sm:w-5 sm:h-5'}`} />
             </button>
             {subtitleUrl && (
               <button
+                tabIndex={0}
                 onClick={(e) => {
                   e.stopPropagation();
                   setIsCaptionModalOpen(true);
@@ -652,28 +795,35 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
           {/* TV Big Screen 10-foot Mode Toggle */}
           <button
-            onClick={() => setIsTvMode((prev) => !prev)}
-            title={isTvMode ? "Exit TV Mode (T)" : "TV Big Screen Mode (T)"}
-            className={`p-2 sm:p-2.5 rounded-full border transition-all focus-visible:ring-4 focus-visible:ring-purple-400 ${
+            tabIndex={0}
+            onClick={handleToggleTvMode}
+            title={isTvMode ? 'Exit TV Mode (T)' : 'TV Big Screen Mode (T)'}
+            className={`${
+              isTvMode ? 'p-3 sm:p-3.5' : 'p-2 sm:p-2.5'
+            } rounded-full border transition-all focus-visible:ring-4 focus-visible:ring-purple-400 ${
               isTvMode
                 ? 'bg-indigo-600 text-white border-indigo-400 shadow-md shadow-indigo-600/30 ring-2 ring-indigo-400/50'
                 : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-700/70'
             }`}
           >
-            <Tv className="w-4 h-4 sm:w-5 sm:h-5" />
+            <Tv className={`${isTvMode ? 'w-5 h-5 sm:w-6 sm:h-6' : 'w-4 h-4 sm:w-5 sm:h-5'}`} />
           </button>
 
           {/* Picture-in-Picture */}
           <button
+            tabIndex={0}
             onClick={togglePiP}
             title="Picture-in-Picture (P)"
-            className="p-2 sm:p-2.5 rounded-full bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-700/70 transition-all focus-visible:ring-4 focus-visible:ring-purple-400"
+            className={`${
+              isTvMode ? 'p-3 sm:p-3.5' : 'p-2 sm:p-2.5'
+            } rounded-full bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-700/70 transition-all focus-visible:ring-4 focus-visible:ring-purple-400`}
           >
-            <PictureInPicture className="w-4 h-4 sm:w-5 sm:h-5" />
+            <PictureInPicture className={`${isTvMode ? 'w-5 h-5 sm:w-6 sm:h-6' : 'w-4 h-4 sm:w-5 sm:h-5'}`} />
           </button>
 
           {/* Favorite Button */}
           <button
+            tabIndex={0}
             onClick={async (e) => {
               e.stopPropagation();
               const nextState = !media.isFavorite;
@@ -695,57 +845,84 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               } catch (err) {}
             }}
             title={media.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
-            className={`p-2 sm:p-2.5 rounded-full border transition-all ${
+            className={`${
+              isTvMode ? 'p-3 sm:p-3.5' : 'p-2 sm:p-2.5'
+            } rounded-full border transition-all ${
               media.isFavorite
                 ? 'bg-amber-500/20 border-amber-500/40 text-amber-400'
                 : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 border-zinc-700/70'
             }`}
           >
-            <Star className={`w-4 h-4 sm:w-5 sm:h-5 ${media.isFavorite ? 'fill-amber-400 text-amber-400' : ''}`} />
+            <Star
+              className={`${isTvMode ? 'w-5 h-5 sm:w-6 sm:h-6' : 'w-4 h-4 sm:w-5 sm:h-5'} ${
+                media.isFavorite ? 'fill-amber-400 text-amber-400' : ''
+              }`}
+            />
           </button>
 
           {/* Open in FastStream (Open Source Zero-Buffering Player) */}
           <a
+            tabIndex={0}
             href={`https://faststream.online/#${encodeURIComponent(media.streamUrl || '')}`}
             target="_blank"
             rel="noopener noreferrer"
             title="Open in FastStream Player (Zero-Buffering External Player)"
             onClick={(e) => e.stopPropagation()}
-            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/40 hover:to-orange-500/40 text-amber-300 border border-amber-500/40 text-xs font-bold transition-all shadow-sm"
+            className={`hidden sm:flex items-center gap-1.5 ${
+              isTvMode ? 'px-4 py-2 text-sm' : 'px-3 py-1.5 text-xs'
+            } rounded-full bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/40 hover:to-orange-500/40 text-amber-300 border border-amber-500/40 font-bold transition-all shadow-sm`}
           >
-            <Zap className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+            <Zap className={`${isTvMode ? 'w-4 h-4' : 'w-3.5 h-3.5'} fill-amber-400 text-amber-400`} />
             <span>FastStream</span>
           </a>
 
           {/* Download Button */}
           <a
+            tabIndex={0}
             href={`${media.streamUrl}&download=true`}
             download={media.fileName}
             onClick={(e) => e.stopPropagation()}
             title="Download video"
-            className="p-2 sm:p-2.5 rounded-full bg-zinc-900/80 hover:bg-emerald-600 text-zinc-300 hover:text-white border border-zinc-700/70 transition-all"
+            className={`${
+              isTvMode ? 'p-3 sm:p-3.5' : 'p-2 sm:p-2.5'
+            } rounded-full bg-zinc-900/80 hover:bg-emerald-600 text-zinc-300 hover:text-white border border-zinc-700/70 transition-all`}
           >
-            <Download className="w-4 h-4 sm:w-5 sm:h-5" />
+            <Download className={`${isTvMode ? 'w-5 h-5 sm:w-6 sm:h-6' : 'w-4 h-4 sm:w-5 sm:h-5'}`} />
           </a>
+
           <button
+            tabIndex={0}
             onClick={onClose}
-            className="p-2 sm:p-2.5 rounded-full bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-700/70"
+            className={`${
+              isTvMode ? 'p-3 sm:p-3.5' : 'p-2 sm:p-2.5'
+            } rounded-full bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-700/70`}
           >
-            <X className="w-4 h-4 sm:w-5 sm:h-5" />
+            <X className={`${isTvMode ? 'w-5 h-5 sm:w-6 sm:h-6' : 'w-4 h-4 sm:w-5 sm:h-5'}`} />
           </button>
         </div>
       </div>
 
       {/* Bottom Controls Bar Overlay */}
       <div
-        className={`absolute bottom-0 left-0 right-0 p-3 sm:p-6 bg-gradient-to-t from-black/90 via-black/50 to-transparent transition-opacity duration-300 z-20 ${
+        className={`absolute bottom-0 left-0 right-0 ${
+          isTvMode
+            ? 'p-4 sm:p-8 bg-gradient-to-t from-black/95 via-black/70 to-transparent'
+            : 'p-3 sm:p-6 bg-gradient-to-t from-black/90 via-black/50 to-transparent'
+        } transition-opacity duration-300 z-20 ${
           showOverlay ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
       >
         {/* Timeline Seekbar */}
-        <div className="flex items-center space-x-2 sm:space-x-3 mb-2 sm:mb-4">
-          <span className="text-[10px] sm:text-xs font-mono text-zinc-300">{formatDuration(currentTime)}</span>
+        <div className={`flex items-center space-x-2 sm:space-x-4 ${isTvMode ? 'mb-3 sm:mb-5' : 'mb-2 sm:mb-4'}`}>
+          <span
+            className={`${
+              isTvMode ? 'text-xs sm:text-sm font-bold text-zinc-200' : 'text-[10px] sm:text-xs text-zinc-300'
+            } font-mono`}
+          >
+            {formatDuration(currentTime)}
+          </span>
           <input
+            tabIndex={0}
             type="range"
             min={0}
             max={duration || 100}
@@ -755,35 +932,77 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               if (videoRef.current) videoRef.current.currentTime = newTime;
               setCurrentTime(newTime);
             }}
-            className="flex-1 h-1.5 bg-zinc-700 accent-blue-500 rounded-lg cursor-pointer"
+            className={`flex-1 ${
+              isTvMode ? 'h-3 sm:h-3.5 tv-range' : 'h-1.5'
+            } bg-zinc-700/80 accent-blue-500 rounded-lg cursor-pointer`}
           />
-          <span className="text-[10px] sm:text-xs font-mono text-zinc-400">{formatDuration(duration)}</span>
+          <span
+            className={`${
+              isTvMode ? 'text-xs sm:text-sm font-bold text-zinc-200' : 'text-[10px] sm:text-xs text-zinc-400'
+            } font-mono`}
+          >
+            {formatDuration(duration)}
+          </span>
         </div>
 
         {/* Buttons Controls */}
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2 sm:space-x-4">
             <button
+              tabIndex={0}
               onClick={togglePlay}
-              className="p-2 sm:p-2.5 rounded-full bg-blue-600 hover:bg-blue-500 text-white transition-all shadow-md shadow-blue-600/30"
+              className={`${
+                isTvMode ? 'p-3.5 sm:p-4 rounded-2xl' : 'p-2 sm:p-2.5 rounded-full'
+              } bg-blue-600 hover:bg-blue-500 text-white transition-all shadow-md shadow-blue-600/30`}
             >
-              {isPlaying ? <Pause className="w-4 h-4 sm:w-5 sm:h-5 fill-white" /> : <Play className="w-4 h-4 sm:w-5 sm:h-5 fill-white translate-x-0.5" />}
+              {isPlaying ? (
+                <Pause className={`${isTvMode ? 'w-6 h-6 sm:w-7 sm:h-7' : 'w-4 h-4 sm:w-5 sm:h-5'} fill-white`} />
+              ) : (
+                <Play
+                  className={`${
+                    isTvMode ? 'w-6 h-6 sm:w-7 sm:h-7' : 'w-4 h-4 sm:w-5 sm:h-5'
+                  } fill-white translate-x-0.5`}
+                />
+              )}
             </button>
 
-            <button onClick={() => seek(-5)} title="-5s" className="text-zinc-400 hover:text-white transition-colors">
-              <RotateCcw className="w-4 h-4 sm:w-5 sm:h-5" />
+            <button
+              tabIndex={0}
+              onClick={() => seek(-5)}
+              title="-5s"
+              className={`${
+                isTvMode ? 'p-2.5 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 text-zinc-200' : 'text-zinc-400 hover:text-white'
+              } transition-colors`}
+            >
+              <RotateCcw className={`${isTvMode ? 'w-5 h-5 sm:w-6 sm:h-6' : 'w-4 h-4 sm:w-5 sm:h-5'}`} />
             </button>
 
-            <button onClick={() => seek(5)} title="+5s" className="text-zinc-400 hover:text-white transition-colors">
-              <RotateCw className="w-5 h-5" />
+            <button
+              tabIndex={0}
+              onClick={() => seek(5)}
+              title="+5s"
+              className={`${
+                isTvMode ? 'p-2.5 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 text-zinc-200' : 'text-zinc-400 hover:text-white'
+              } transition-colors`}
+            >
+              <RotateCw className={`${isTvMode ? 'w-5 h-5 sm:w-6 sm:h-6' : 'w-5 h-5'}`} />
             </button>
 
             {/* Volume Control */}
             <div className="hidden sm:flex items-center space-x-2 pl-2 border-l border-zinc-800">
-              <button onClick={toggleMute} className="text-zinc-400 hover:text-white transition-colors">
-                {isMuted || volume === 0 ? <VolumeX className="w-5 h-5 text-red-400" /> : <Volume2 className="w-5 h-5" />}
+              <button
+                tabIndex={0}
+                onClick={toggleMute}
+                className="text-zinc-400 hover:text-white transition-colors"
+              >
+                {isMuted || volume === 0 ? (
+                  <VolumeX className={`${isTvMode ? 'w-6 h-6' : 'w-5 h-5'} text-red-400`} />
+                ) : (
+                  <Volume2 className={`${isTvMode ? 'w-6 h-6' : 'w-5 h-5'}`} />
+                )}
               </button>
               <input
+                tabIndex={0}
                 type="range"
                 min={0}
                 max={1}
@@ -794,7 +1013,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   setVolume(val);
                   if (videoRef.current) videoRef.current.volume = val;
                 }}
-                className="w-16 sm:w-20 h-1 bg-zinc-700 accent-blue-500 rounded cursor-pointer"
+                className={`${
+                  isTvMode ? 'w-24 sm:w-28 h-2' : 'w-16 sm:w-20 h-1'
+                } bg-zinc-700 accent-blue-500 rounded cursor-pointer`}
               />
             </div>
 
@@ -802,9 +1023,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             <div className="flex items-center space-x-1 pl-2 border-l border-zinc-800">
               {[0.5, 1.0, 1.25, 1.5, 2.0].map((rate) => (
                 <button
+                  tabIndex={0}
                   key={rate}
                   onClick={() => changeSpeed(rate)}
-                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-all ${
+                  className={`${
+                    isTvMode ? 'px-2.5 py-1 text-xs' : 'px-1.5 py-0.5 text-[10px]'
+                  } rounded font-mono transition-all ${
                     playbackRate === rate
                       ? 'bg-blue-600 text-white font-bold'
                       : 'bg-zinc-800/80 text-zinc-400 hover:text-zinc-200'
@@ -818,17 +1042,27 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
           {/* Right Controls */}
           <div className="flex items-center space-x-3">
-            {/* Keyboard Shortcuts Tooltip */}
+            {/* Keyboard & Remote Shortcuts Tooltip */}
             <div className="hidden sm:flex items-center space-x-2 text-[11px] font-mono text-zinc-400 bg-zinc-900/80 px-3 py-1 rounded-lg border border-zinc-800">
-              <span>Space: Play/Pause</span>
+              <span>OK/Space: Play</span>
               <span>•</span>
-              <span>←/→: ±5s</span>
+              <span>◄/►: ±10s</span>
               <span>•</span>
-              <span>F: Fullscreen</span>
+              <span>F: Full</span>
             </div>
 
-            <button onClick={toggleFullscreen} className="text-zinc-400 hover:text-white p-2 rounded-lg transition-colors">
-              {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
+            <button
+              tabIndex={0}
+              onClick={toggleFullscreen}
+              className={`${
+                isTvMode ? 'p-3 bg-zinc-800/80 hover:bg-zinc-700 text-zinc-200' : 'text-zinc-400 hover:text-white p-2'
+              } rounded-lg transition-colors`}
+            >
+              {isFullscreen ? (
+                <Minimize className={`${isTvMode ? 'w-6 h-6' : 'w-5 h-5'}`} />
+              ) : (
+                <Maximize className={`${isTvMode ? 'w-6 h-6' : 'w-5 h-5'}`} />
+              )}
             </button>
           </div>
         </div>
